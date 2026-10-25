@@ -1,0 +1,212 @@
+{
+  "schema": "iron-hands-forge-motion-bindings-v1",
+  "version": 1,
+  "bindingPolicy": "shared-preview-validated",
+  "policyNotes": "Use native body TRS shared preview loops on verified class rigs. Preserve the target local bind for the listed facial controls only when both source components are fixed. Facial controls inherit animated HEAD; this is a preview policy, not the full native facial/Morpheme controller.",
+  "inheritedOnlyChannels": [
+    "brow02_C_face_bind",
+    "brow04_L_face_bind",
+    "brow04_R_face_bind",
+    "brow05_L_face_bind",
+    "brow05_R_face_bind",
+    "brow06_L_face_bind",
+    "brow06_R_face_bind",
+    "cheek_01_L_face_bind",
+    "cheek_01_R_face_bind",
+    "cheek_03_L_face_bind",
+    "cheek_03_R_face_bind",
+    "chin01_L_face_bind",
+    "chin01_R_face_bind",
+    "chin02_L_face_bind",
+    "chin02_R_face_bind",
+    "chin_C_face_bind",
+    "eye_L_face_bind",
+    "eye_R_face_bind",
+    "eyebag01_L_face_bind",
+    "eyebag01_R_face_bind",
+    "eyelidCornerIn_L_face_bind",
+    "eyelidCornerIn_R_face_bind",
+    "eyelidCornerOut_L_face_bind",
+    "eyelidCornerOut_R_face_bind",
+    "jaw_C_face_bind",
+    "lipInBot_C_face_bind",
+    "lipInBot_L_face_bind",
+    "lipInBot_R_face_bind",
+    "lipInMid_L_face_bind",
+    "lipInMid_R_face_bind",
+    "lipInTop_C_face_bind",
+    "lipInTop_L_face_bind",
+    "lipInTop_R_face_bind",
+    "lipOutTop_C_face_bind",
+    "lipOutTop_L_face_bind",
+    "lipOutTop_R_face_bind",
+    "lipRidgeBot_C_face_bind",
+    "lipRidgeBot_L_face_bind",
+    "lipRidgeBot_R_face_bind",
+    "lipRidgeMid_L_face_bind",
+    "lipRidgeMid_R_face_bind",
+    "lipRidgeTop_C_face_bind",
+    "lipRidgeTop_L_face_bind",
+    "lipRidgeTop_R_face_bind",
+    "lowerBrow01_L_face_bind",
+    "lowerBrow01_R_face_bind",
+    "lowerBrow02_L_face_bind",
+    "lowerBrow02_R_face_bind",
+    "lowerBrow03_L_face_bind",
+    "lowerBrow03_R_face_bind",
+    "lowerBrow04_L_face_bind",
+    "lowerLid01_L_face_bind",
+    "lowerLid01_R_face_bind",
+    "lowerLid02_L_face_bind",
+    "lowerLid02_R_face_bind",
+    "lowerLid03_L_face_bind",
+    "lowerLid03_R_face_bind",
+    "lowerLid04_R_face_bind",
+    "nasolabial01_L_face_bind",
+    "nasolabial01_R_face_bind",
+    "nasolabial02_L_face_bind",
+    "nasolabial02_R_face_bind",
+    "nasolabial03_L_face_bind",
+    "nasolabial03_R_face_bind",
+    "pupil_L_face_bind",
+    "pupil_R_face_bind",
+    "teethLower_C_face_bind",
+    "teethUpper_C_face_bind",
+    "tongue01_C_face_bind",
+    "tongue02_C_face_bind",
+    "tongue03_C_face_bind",
+    "upperLid01_L_face_bind",
+    "upperLid01_R_face_bind",
+    "upperLid02_L_face_bind",
+    "upperLid02_R_face_bind",
+    "upperLid03_L_face_bind",
+    "upperLid03_R_face_bind",
+    "upperLid04_L_face_bind",
+    "upperLid04_R_face_bind",
+    "upperLid05_L_face_bind",
+    "upperLid05_R_face_bind",
+    "upperLid06_L_face_bind",
+    "upperLid06_R_face_bind"
+  ],
+  "clips": {
+    "walk_unarmed": {
+      "gait": "walk",
+      "stance": "unarmed",
+      "sourceEntry": "animation/primaris/tacticus/loco/walk/no_aim/tacticus_unarmed_walk_fwd_sounds_intercessor.sani",
+      "output": "SM2-walk/decoded-extra/tacticus_unarmed_walk_fwd_sounds_intercessor.animation.json"
+    },
+    "walk_armed": {
+      "gait": "walk",
+      "stance": "armed",
+      "sourceEntry": "animation/primaris/tacticus/loco/walk/no_aim/tacticus_wpn0_walk_fwd_intercessor.sani",
+      "output": "SM2-walk/decoded/tacticus_wpn0_walk_fwd_intercessor.animation.json"
+    },
+    "run_unarmed": {
+      "gait": "run",
+      "stance": "unarmed",
+      "sourceEntry": "animation/primaris/tacticus/loco/run/tacticus_unarmed_run_fwd_intercessor.sani",
+      "output": "SM2-run/decoded/tacticus_unarmed_run_fwd_intercessor.animation.json"
+    },
+    "run_armed": {
+      "gait": "run",
+      "stance": "armed",
+      "sourceEntry": "animation/primaris/tacticus/loco/run/tacticus_wpn0_run_fwd_intercessor.sani",
+      "output": "SM2-run/decoded/tacticus_wpn0_run_fwd_intercessor.animation.json"
+    }
+  },
+  "classes": {
+    "PVE_PVP_SOLDIER": {
+      "asset": "cc_sm_constructor_soldier",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_SNIPER": {
+      "asset": "cc_sm_constructor_sniper",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_SUPPORT": {
+      "asset": "cc_sm_constructor_support",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_RAIDER": {
+      "asset": "cc_sm_constructor_raider",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_TANK": {
+      "asset": "cc_sm_constructor_tank",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_BERSERK": {
+      "asset": "cc_sm_constructor_berserk",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
+    }
+  },
+  "canonicalGameFacialController": false,
+  "inheritedOnlyChannelPolicy": "Preserve target local bind only when positionMode and rotationMode are both fixed; inherit animated parents.",
+  "validationScope": "Six verified V5 playable rigs with assembled default armor and bare heads, using shared native preview body loops."
+}
