@@ -1,0 +1,27 @@
+{
+  "schema": "iron-hands-forge",
+  "version": 1,
+  "kind": "soldier",
+  "catalog": {"game": "SM2", "build": "unknown"},
+  "soldiers": [{
+    "id": "example-1",
+    "role": "Sergeant",
+    "classId": "PVE_PVP_SOLDIER",
+    "selection": {
+      "HELMET": "helmet_soldier_common_01",
+      "BACKPACK": "backpack_soldier_common_01",
+      "CHEST": "chest_soldier_common_01",
+      "LEFT_PAULDRON": "left_pauldron_soldier_common_01",
+      "RIGHT_PAULDRON": "right_pauldron_soldier_common_01",
+      "LEFT_GAUNTLET": "left_gauntlet_soldier_common_01",
+      "RIGHT_GAUNTLET": "right_gauntlet_soldier_common_01",
+      "LEFT_GREAVE": "left_greave_soldier_common_01",
+      "RIGHT_GREAVE": "right_greave_soldier_common_01",
+      "CLOTH": "vanity_soldier_cloth_empty",
+      "COAT": "vanity_soldier_coat_empty",
+      "HALO": "vanity_soldier_halo_empty"
+    },
+    "paint": {"armor": "#171B22", "metal": "#B3BDC9", "lenses": "#EE291C"},
+    "motion": {"gait": "run", "stance": "unarmed", "speedPct": 200, "inPlace": true}
+  }]
+}
