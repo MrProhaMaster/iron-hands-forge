@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/LibSaber/src/LibSaber/LibSaber.csproj" />
+    <ProjectReference Include="../src/LibSaber/src/LibSaber.SpaceMarine2/LibSaber.SpaceMarine2.csproj" />
+    <PackageReference Include="StirlingLabs.Assimp.Net" Version="[23.4.1]" />
+    <PackageReference Update="StirlingLabs.assimp.native.win-x64" Version="[5.2.5.4]" />
+  </ItemGroup>
+</Project>
