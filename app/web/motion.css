@@ -1,0 +1,9 @@
+.motion-row{display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px}.motion-row button{min-height:38px;font-size:12px}.motion-row select{width:auto;min-height:38px;font-size:12px;padding:7px 10px}.motion-row label{font-size:12px;display:flex;align-items:center;gap:7px}.motion-row input[type=range]{width:85px}.motion-row output{min-width:25px}.sr-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+/* Keep the marine and motion controls visible while browsing long part lists. */
+@media(min-width:801px){
+  main{height:calc(100dvh - 145px);min-height:0}
+  .roster,.parts-panel{overflow-y:auto;overscroll-behavior:contain}
+  .studio{overflow:hidden;min-height:0}
+  #stage{flex:1 1 auto;height:auto;min-height:220px}
+  .studio-toolbar,.motion-row,.paint-row,.stage-note,#selection{flex-shrink:0}
+}
