@@ -1,0 +1,38 @@
+{
+  "description": "Synthetic portable codec fixture. All identifiers are invented; no game object IDs or assets. Canonical key order, uppercase colors, raw JSON CRC32 and standard zlib framing.",
+  "recipe": {
+    "schema": "iron-hands-forge",
+    "version": 1,
+    "kind": "soldier",
+    "catalog": {
+      "game": "SM2",
+      "build": "fixture-1",
+      "signature": "fixture-signature"
+    },
+    "soldiers": [
+      {
+        "id": "demo-soldier-01",
+        "role": "demo-role",
+        "classId": "demo-class",
+        "selection": {
+          "helmet": "demo.helmet",
+          "torso": "demo.torso",
+          "leftGauntlet": "demo.gauntlet",
+          "weapon": "demo.weapon"
+        },
+        "paint": {
+          "armor": "#20242A",
+          "metal": "#C0C0C0",
+          "lenses": "#F02020"
+        },
+        "motion": {
+          "gait": "walk",
+          "stance": "armed",
+          "speedPct": 100,
+          "inPlace": true
+        }
+      }
+    ]
+  },
+  "code": "IHF1.eJxNkE9LxDAQxb_LeG0lLZ56E0HxICx4FA9jMpuGTZOSpK5Q-t2d6R9Xeun7zZs3j8ygsaCPFroZvibnDXRwdj9lSlQ3UIHFgRi9v7UssrMBZfTPdGNLBRcXJCBHbxwl2dA9DcjIpRjqHoPJ9TkmSzLbXBm6jxm0x5xfZdnQEOtVssf9kd1dK2k1xOJikM4WXWHLFf1F7OHkUXO9kibiCyOROWk2NEqxLBhkCJgGMtJ3RBeKxDCJiSd3rWof2keO8hQyZUHPiqGSq8RPJeRJyScBKXo6Gq7_fIU86aNeT563dsf9riT8XF5wCsXfhvbQFZSYcjz4Jiq4Eo4SutFdLctnBd_8iOu9ZvkFxiiXtw.c5045bcf"
+}
