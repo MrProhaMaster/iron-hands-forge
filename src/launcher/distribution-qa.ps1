@@ -33,7 +33,7 @@ try {
     if ($health.appId -ne 'iron-hands-forge' -or $health.version -ne $package.version -or $health.appRoot -ne $DistributionDirectory -or $health.dataRoot -ne $DataRoot -or $health.stateRoot -ne $state -or -not $health.ready) { throw 'Published application identity/root health check failed.' }
     $page = Invoke-WebRequest -Uri "$base/" -TimeoutSec 8
     if ($page.Content -notmatch '<html lang="en"' -or $page.Content -notmatch 'Share build') { throw 'Published interface is not the English version.' }
-    $routes = @('/','/web/configurator.js','/web/forge-tools.js','/web/vendor/three.module.js','/web/vendor/addons/loaders/GLTFLoader.js','/web/vendor/addons/utils/SkeletonUtils.js','/shared/recipe-codec.mjs','/shared/motion-policy.mjs','/shared/ui-labels.mjs')
+    $routes = @('/','/web/configurator.js','/web/forge-tools.js','/web/vendor/three.module.js','/web/vendor/addons/loaders/GLTFLoader.js','/web/vendor/addons/utils/SkeletonUtils.js','/shared/recipe-codec.mjs','/shared/motion-policy.mjs','/shared/ui-labels.mjs','/shared/eight-influence-skinning.mjs')
     foreach ($route in $routes) {
         $response = Invoke-WebRequest -Uri ($base+$route) -Method Head -TimeoutSec 8
         if ($response.StatusCode -ne 200) { throw "Published route failed: $route" }
@@ -42,7 +42,7 @@ try {
     $motions = [Collections.Generic.List[object]]::new()
     if ($health.resourcesReady) {
         $motionClasses = @($catalog.motionBindings.classes.PSObject.Properties | Where-Object { $_.Value.status -eq 'validated' })
-        if ($motionClasses.Count -ne 6) { throw 'Expected six verified movement classes in the published catalogue.' }
+        if ($motionClasses.Count -ne 7) { throw 'Expected seven verified movement classes in the published catalogue.' }
         foreach ($motionClass in $motionClasses) {
             $classId = $motionClass.Name
             foreach ($gait in @('walk','run')) {

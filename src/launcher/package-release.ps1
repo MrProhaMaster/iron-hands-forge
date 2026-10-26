@@ -34,7 +34,7 @@ foreach ($file in $files|Sort-Object FullName -Unique) {
     if (Is-Private $relative) { $excluded.Add($relative);continue }
     $included.Add([ordered]@{file=$file.FullName;relative=$relative;bytes=$file.Length})
 }
-foreach ($required in @('IronHandsForge.exe','IronHandsForge.dll','coreclr.dll','hostfxr.dll','hostpolicy.dll','System.Private.CoreLib.dll','runtime/node.exe','app/server.cjs','shared/motion-bindings.json','shared/ui-labels.mjs','LICENSE','THIRD_PARTY_NOTICES.md','licenses/Node.LICENSE.txt','licenses/Three.LICENSE.txt','licenses/DotNetRuntime.LICENSE.txt','licenses/DotNetRuntime.THIRD-PARTY-NOTICES.txt','docs/build-codes.md','examples/tactical-build.json')) {
+foreach ($required in @('IronHandsForge.exe','IronHandsForge.dll','coreclr.dll','hostfxr.dll','hostpolicy.dll','System.Private.CoreLib.dll','runtime/node.exe','app/server.cjs','shared/motion-bindings.json','shared/ui-labels.mjs','shared/eight-influence-skinning.mjs','LICENSE','THIRD_PARTY_NOTICES.md','licenses/Node.LICENSE.txt','licenses/Three.LICENSE.txt','licenses/DotNetRuntime.LICENSE.txt','licenses/DotNetRuntime.THIRD-PARTY-NOTICES.txt','docs/build-codes.md','examples/tactical-build.json')) {
     if ($required -notin $included.relative) { throw "Release file is missing: $required" }
 }
 $prefix=(Split-Path -Leaf $releaseRoot)+'/'
