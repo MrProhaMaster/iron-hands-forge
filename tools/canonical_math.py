@@ -119,18 +119,22 @@ def patch(src, dst):
                     v[:, 3] *= 1 if np.linalg.det(w[:3, :3]) >= 0 else -1
             ai = attrs.get('WEIGHTS_0')
             if ai is not None and ai not in weight_done:
-                weight_done.add(ai)
-                a = d['accessors'][ai]
-                v = view(ai)
-                if not a['componentType'] == 5126:
+                weight_accessors = [attrs['WEIGHTS_' + str(i)] for i in range(2 if 'WEIGHTS_1' in attrs else 1)]
+                if ('WEIGHTS_1' in attrs) != ('JOINTS_1' in attrs):
+                    raise ValueError('Incomplete extended skin influence set')
+                if any(d['accessors'][a]['componentType'] != 5126 for a in weight_accessors):
                     raise ValueError('Canonical skin/source profile validation failed')
-                sums = v.astype(np.float64).sum(axis=1)
+                weight_done.update(weight_accessors)
+                arrays = [view(a) for a in weight_accessors]
+                sums = sum(a.astype(np.float64).sum(axis=1) for a in arrays)
                 if not (np.isfinite(sums).all() and (sums > 0).all()):
                     raise ValueError('Canonical skin/source profile validation failed')
                 bad = np.abs(sums - 1) > 1e-06
                 changed_weights += int(bad.sum())
-                v[bad] = (v[bad].astype(np.float64) / sums[bad, None]).astype(v.dtype)
-                max_weight_error = max(max_weight_error, float(np.max(np.abs(v.astype(np.float64).sum(axis=1) - 1), initial=0)))
+                for a in arrays:
+                    a[bad] = (a[bad].astype(np.float64) / sums[bad, None]).astype(a.dtype)
+                combined = sum(a.astype(np.float64).sum(axis=1) for a in arrays)
+                max_weight_error = max(max_weight_error, float(np.max(np.abs(combined - 1), initial=0)))
         n.pop('translation', None)
         n.pop('rotation', None)
         n.pop('scale', None)
@@ -156,6 +160,8 @@ def patch(src, dst):
         f.write(jb)
         f.write(struct.pack('<II', bs, bt))
         f.write(memoryview(mm)[binbase:binbase + bs])
+    arrays = None
+    a = None
     del ib, v, mm
     checked(tmp).unlink()
     return {'transformValidation': 'passed', 'restSkinValidation': 'passed', 'validationBasis': 'all positions preserve original mesh-node placement; all jointWorld * inverseBind matrices identity; normalized GLB weights', 'verticesChecked': checked_vertices, 'maxRestVertexBakeError': max_bake_error, 'maxJointWorldInverseError': max_inverse_error, 'maxWeightSumError': max_weight_error, 'weightsRepaired': changed_weights, 'raw': str(dst), 'sourceNativeV2': str(src), 'bytes': dst.stat().st_size}

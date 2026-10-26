@@ -15,10 +15,10 @@ import time
 
 sys.dont_write_bytecode = True
 import canonical_math
-from skin_profile_validation import validate_profiles, restore_uvs, glb
+from skin_profile_validation import validate_profiles, restore_uvs, glb, restore_extended_profiles
 
 VERSION = '5.0-canonical-skin-profile-safe'
-SUPPORTED = ['cc_sm_constructor_'+name for name in ['soldier','sniper','support','raider','tank','berserk']]
+SUPPORTED = ['cc_sm_constructor_'+name for name in ['soldier','sniper','support','raider','tank','berserk','engineer']]
 
 def inside(root, value):
     value=Path(value).resolve()
@@ -43,7 +43,7 @@ def main(argv=None):
     parser.add_argument('--data-root',type=Path,required=True)
     parser.add_argument('--native-root',type=Path)
     parser.add_argument('--output-root',type=Path)
-    parser.add_argument('--asset',action='append',help='Repeat for selected constructor IDs; defaults to the six supported playable classes')
+    parser.add_argument('--asset',action='append',help='Repeat for selected constructor IDs; defaults to the seven supported playable classes')
     parser.add_argument('--game-build')
     args=parser.parse_args(argv)
     root=args.data_root.resolve();root.mkdir(parents=True,exist_ok=True)
@@ -59,14 +59,19 @@ def main(argv=None):
         'schemaVersion':5,'sourceVersion':5,'extractorVersion':VERSION,'kind':'armor_constructors',
         'output':str(output),'expectedAssets':SUPPORTED.copy(),'assets':[],'failures':[],'completed':False,
         'notes':['Locally generated from the installed game; no previous version or official model file is required.',
-                 'Engineer WEIGHT8 and Medic class customization are not included in the supported six-class preparation.']}
+                 'Engineer extended skin preserves all verified source influences; Medic class customization is not included.']}
     if manifest.get('extractorVersion')!=VERSION:raise ValueError('Output belongs to a different extractor version; choose a new output folder')
+    # Early V5 publications stored selected/exported counts without expectedAssets.
+    # Adopt them in place without rewriting any previously validated constructor.
+    if 'expectedAssets' not in manifest:
+        manifest['expectedAssets']=list(dict.fromkeys([asset['asset'] for asset in manifest['assets']]+SUPPORTED))
     if args.game_build:manifest['gameBuild']=str(args.game_build)
     for name in names:
         native=inside(root,native_root/name/(name+'.glb'))
         metadata=inside(root,native_root/name/(name+'.json'))
         meta=json.loads(metadata.read_text(encoding='utf-8-sig'))
-        if meta.get('extractorVersion')!='5.0-skin-safe-three-weight':raise ValueError('The matching skin-safe V5 native extractor is required')
+        if meta.get('extractorVersion') not in ('5.0-skin-safe-three-weight','5.1-skin-safe-eight-weight'):raise ValueError('The matching skin-safe V5 native extractor is required')
+        if name=='cc_sm_constructor_engineer' and meta.get('extractorVersion')!='5.1-skin-safe-eight-weight':raise ValueError('Engineer requires the extended source-profile extractor')
         profiles=inside(root,meta['skinProfileAuditFile'])
         if not native.is_file() or not profiles.is_file():raise ValueError('Incomplete native extraction')
         if Path(meta['file']).resolve()!=native:raise ValueError('Native metadata/file association mismatch')
@@ -85,10 +90,16 @@ def main(argv=None):
         for mesh in meta['meshes']:
             if mesh['objectId'] not in objects or objects[mesh['objectId']]['name']!=mesh['name'] or mesh['lod']!=0:
                 raise ValueError('Invalid LOD0 source-object association')
-        semantic,details=validate_profiles(native,meta)
         target=inside(root,output/(name+'.glb'))
         if target.exists():raise ValueError('An uncommitted output already exists; choose a new output folder or inspect it before retrying')
-        validation=canonical_math.patch(native,target)
+        restored=inside(root,output/(name+'.native-eightweight-tmp.glb'))
+        extended=restore_extended_profiles(native,restored,meta)
+        verified_native=restored if extended else native
+        try:
+            semantic,details=validate_profiles(verified_native,meta)
+            validation=canonical_math.patch(verified_native,target)
+        finally:
+            if extended and restored.exists():restored.unlink()
         restore_uvs(target,meta)
         data,_,_,_=glb(target)
         if len(data['meshes'])!=len(meta['meshes']) or any(a['name']!=b['name'] for a,b in zip(data['meshes'],meta['meshes'])):
@@ -96,7 +107,8 @@ def main(argv=None):
         validation.pop('sourceNativeV2',None)
         validation.update(semantic)
         validation.update({'sourceVersion':5,'extractorVersion':VERSION,'weightPackingValidation':'passed',
-                           'weightPackingBasis':'V5 native extractor accepts verified three-influence WEIGHT4 and rejects WEIGHT8; every native skin profile is independently matched through the source-vertex guard.',
+                           'weightPackingBasis':'Verified three-influence WEIGHT4 and extended WEIGHT8 source profiles; all source influences and triangle assignments preserved through exact source-vertex guards.',
+                           'skinInfluenceSets':2 if extended else 1,'extendedSkinRestoration':'passed' if extended else 'not_needed',
                            'meshIndexValidation':'passed','sourceObjectIdentityValidation':'passed','uvRestorationValidation':'passed',
                            'sourceNativeV5':str(native),'nativeSha256':source_hash,'nativeProfileSha256':profile_hash,'publishedSha256':sha256(target),
                            'tangentRecalculation':False,'bytes':target.stat().st_size})
@@ -109,6 +121,9 @@ def main(argv=None):
                                    'vertices':meta['vertices'],'faces':meta['faces'],'cleanFiles':[],
                                    'selectionStatus':'constructor_raw_all_LOD0_parts_separate_class',**validation})
         manifest['failures']=[item for item in manifest['failures']if item.get('asset')!=name]
+        if name=='cc_sm_constructor_engineer' and name not in manifest['expectedAssets']:manifest['expectedAssets'].append(name)
+        if name=='cc_sm_constructor_engineer':
+            manifest['notes']=[note for note in manifest.get('notes',[]) if not ('Engineer' in note and any(word in note for word in ('excluded','unsupported','not included','rejects WEIGHT8')))]
         manifest['exported']=len(manifest['assets']);manifest['failed']=len(manifest['failures']);manifest['selected']=len(manifest['expectedAssets'])
         manifest['completed']=set(manifest['expectedAssets']).issubset({item['asset']for item in manifest['assets']})
         status='passed' if manifest['completed'] else 'partial'

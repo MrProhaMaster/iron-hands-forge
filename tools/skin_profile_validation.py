@@ -13,6 +13,123 @@ def glb(path):
         size, binary_kind = struct.unpack('<II', f.read(8))
     return (data, 28 + length, size, binary_kind)
 
+
+def _records(profile, audit, source_ids):
+    stride = audit.get('recordStride', 24)
+    if stride not in (24, 64):
+        raise ValueError('Unsupported source skin audit stride')
+    columns = stride // 4
+    start = audit['byteOffset'] // 4
+    if audit['byteOffset'] % 4 or start + audit['vertexCount'] * columns > len(profile):
+        raise ValueError('Invalid source skin audit range')
+    records = profile[start:start + audit['vertexCount'] * columns].reshape(audit['vertexCount'], columns)[source_ids]
+    weights = records[:, 1::2].astype(np.float64)
+    ids = records[:, 0::2].astype(np.int64)
+    if not np.array_equal(ids, records[:, 0::2]) or not (np.isfinite(weights).all() and (weights >= 0).all()):
+        raise ValueError('Invalid source skin influence')
+    return ids, weights
+
+
+def restore_extended_profiles(source, destination, meta):
+    """Restore every audited influence after Assimp's four-influence exporter.
+
+    The native GLB and source profile proof remain immutable. Only meshes with
+    eight-slot audit records are rewritten in this private intermediate copy.
+    Source vertex IDs in UV0 map exported vertices to the original profiles.
+    """
+    if not any(m['skinProfileAudit'].get('recordStride', 24) == 64 for m in meta['meshes']):
+        return False
+    data, base, size, kind = glb(source)
+    if len(data['meshes']) != len(meta['meshes']):
+        raise ValueError('Native mesh/source report count changed')
+    mm = np.memmap(source, mode='r', dtype=np.uint8)
+    profiles = np.memmap(meta['skinProfileAuditFile'], mode='r', dtype='<f4')
+    mesh_skins = {n['mesh']: n['skin'] for n in data['nodes'] if 'mesh' in n and 'skin' in n}
+    blocks = []
+    length = size
+
+    def values(index):
+        a = data['accessors'][index]
+        v = data['bufferViews'][a['bufferView']]
+        if a['type'] != 'VEC2' or a['componentType'] != 5126:
+            raise ValueError('Invalid source vertex guard')
+        return np.ndarray((a['count'], 2), dtype='<f4', buffer=mm,
+                          offset=base + v.get('byteOffset', 0) + a.get('byteOffset', 0),
+                          strides=(v.get('byteStride', 8), 4))
+
+    def append(array, component):
+        nonlocal length
+        array = np.ascontiguousarray(array)
+        padding = -length % 4
+        if padding:
+            blocks.append(b'\0' * padding)
+            length += padding
+        view = len(data['bufferViews'])
+        raw = array.tobytes()
+        data['bufferViews'].append({'buffer': 0, 'byteOffset': length, 'byteLength': len(raw), 'target': 34962})
+        length += len(raw)
+        blocks.append(raw)
+        accessor = len(data['accessors'])
+        data['accessors'].append({'bufferView': view, 'componentType': component, 'count': len(array), 'type': 'VEC4'})
+        return accessor
+
+    for index, (mesh, record) in enumerate(zip(data['meshes'], meta['meshes'])):
+        audit = record['skinProfileAudit']
+        if audit.get('recordStride', 24) != 64:
+            continue
+        if mesh['name'] != record['name'] or len(mesh['primitives']) != 1:
+            raise ValueError('Native mesh/source association changed')
+        attrs = mesh['primitives'][0]['attributes']
+        uv = values(attrs['TEXCOORD_0'])
+        ids = uv[:, 0].astype(np.int64)
+        if not np.array_equal(ids, uv[:, 0]) or not ((ids >= 0).all() and (ids < audit['vertexCount']).all()):
+            raise ValueError('Invalid source vertex guard')
+        source_bones, source_weights = _records(profiles, audit, ids)
+        skin = data['skins'][mesh_skins[index]]
+        joint_names = [data['nodes'][n]['name'] for n in skin['joints']]
+        if len(joint_names) != len(set(joint_names)) or len(joint_names) > 65536:
+            raise ValueError('Ambiguous or oversized native joint palette')
+        palette = {name: i for i, name in enumerate(joint_names)}
+        name_lookup = np.full(len(meta['skinProfileBoneNames']), -1, dtype=np.int64)
+        for name_id, name in enumerate(meta['skinProfileBoneNames']):
+            name_lookup[name_id] = palette.get(name, -1)
+        active = source_weights > 0
+        if not ((source_bones[active] >= 0).all() and (source_bones[active] < len(name_lookup)).all()):
+            raise ValueError('Invalid source bone symbol')
+        joints = np.zeros(source_bones.shape, dtype='<u2')
+        mapped = name_lookup[source_bones[active]]
+        if (mapped < 0).any():
+            raise ValueError('Assimp omitted a required source bone from the skin palette')
+        joints[active] = mapped
+        weights = source_weights.astype('<f4')
+        for part in range(2):
+            columns = slice(part * 4, part * 4 + 4)
+            attrs['JOINTS_' + str(part)] = append(joints[:, columns], 5123)
+            attrs['WEIGHTS_' + str(part)] = append(weights[:, columns], 5126)
+    data['buffers'][0]['byteLength'] = length
+    data['asset'].setdefault('extras', {})['ForgeExtendedSkinRestoration'] = 'All source weights preserved in JOINTS_0/1 and WEIGHTS_0/1 using exact UV0 source vertex IDs; no influence truncation'
+    encoded = json.dumps(data, separators=(',', ':')).encode()
+    encoded += b' ' * (-len(encoded) % 4)
+    tail = b'\0' * (-length % 4)
+    with destination.open('xb') as target, source.open('rb') as original:
+        target.write(struct.pack('<III', 1179937895, 2, 28 + len(encoded) + length + len(tail)))
+        target.write(struct.pack('<II', len(encoded), 1313821514))
+        target.write(encoded)
+        target.write(struct.pack('<II', length + len(tail), kind))
+        original.seek(base)
+        remaining = size
+        while remaining:
+            chunk = original.read(min(8 * 1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError('Truncated native binary chunk')
+            target.write(chunk)
+            remaining -= len(chunk)
+        for block in blocks:
+            target.write(block)
+        target.write(tail)
+    del uv, profiles, mm
+    return True
+
 def validate_profiles(path, meta):
     data, base, size, _ = glb(path)
     mm = np.memmap(path, mode='r', dtype=np.uint8)
@@ -55,19 +172,25 @@ def validate_profiles(path, meta):
             raise ValueError('Different source vertices were welded')
         if not len(source_ids) == audit['sourceUsedVertexCount']:
             raise ValueError('Used source vertices were dropped or invented')
-        start = audit['byteOffset'] // 4
-        count = audit['vertexCount']
-        records = profile[start:start + count * 6].reshape(count, 6)[source_ids]
-        expected_ids = np.full((len(source_ids), 4), 2 ** 30, dtype=np.int64)
-        expected_weights = np.zeros((len(source_ids), 4), dtype=np.float64)
-        expected_ids[:, :3] = records[:, 0::2].astype(np.int64)
-        expected_weights[:, :3] = records[:, 1::2]
+        source_bones, source_weights = _records(profile, audit, source_ids)
+        capacity = 8 if audit.get('recordStride', 24) == 64 else 4
+        expected_ids = np.full((len(source_ids), capacity), 2 ** 30, dtype=np.int64)
+        expected_weights = np.zeros((len(source_ids), capacity), dtype=np.float64)
+        expected_ids[:, :source_bones.shape[1]] = source_bones
+        expected_weights[:, :source_weights.shape[1]] = source_weights
         expected_ids[expected_weights <= 0] = 2 ** 30
         skin = data['skins'][mesh_skins[index]]
         joint_names = [data['nodes'][j]['name'] for j in skin['joints']]
         joint_symbols = np.array([name_ids.get(n, -1) for n in joint_names], dtype=np.int64)
-        actual_weights = view(attrs['WEIGHTS_0']).astype(np.float64)
-        actual_ids = joint_symbols[view(attrs['JOINTS_0']).astype(np.int64)]
+        if ('JOINTS_1' in attrs) != ('WEIGHTS_1' in attrs) or (capacity == 8 and 'WEIGHTS_1' not in attrs):
+            raise ValueError('Extended source influences were omitted')
+        if capacity == 4 and 'WEIGHTS_1' in attrs:
+            raise ValueError('Unexpected extra influence set on legacy source profile')
+        actual_weights = np.concatenate([view(attrs['WEIGHTS_' + str(i)]).astype(np.float64) for i in range(capacity // 4)], axis=1)
+        palette_ids = np.concatenate([view(attrs['JOINTS_' + str(i)]).astype(np.int64) for i in range(capacity // 4)], axis=1)
+        if not ((palette_ids >= 0).all() and (palette_ids < len(joint_symbols)).all()):
+            raise ValueError('Invalid exported joint palette index')
+        actual_ids = joint_symbols[palette_ids]
         actual_ids[actual_weights <= 0] = 2 ** 30
         for ids, weights in [(actual_ids, actual_weights), (expected_ids, expected_weights)]:
             order = np.argsort(ids, axis=1, kind='stable')
