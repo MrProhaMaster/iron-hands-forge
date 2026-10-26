@@ -1,6 +1,6 @@
 {
   "name": "iron-hands-forge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Portable Space Marine 2 armour assembly, motion preview and Blender recipes",
