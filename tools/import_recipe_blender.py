@@ -33,11 +33,11 @@ def run():
         raise ValueError('Output already exists; choose a new .blend filename')
     recipe = decode_recipe(ns.code) if ns.code else normalize_recipe(json.loads(ns.recipe.read_text(encoding='utf-8')))
     product = TOOLS.parent
-    node = ns.node or (product / 'runtime' / 'node.exe')
+    node = ns.node or (product / 'runtime' / ('node.exe' if os.name == 'nt' else 'node'))
     if not node.is_file():
         found = shutil.which('node')
         if not found:
-            raise RuntimeError('Node runtime was not found. Pass --node or use the complete EXE distribution.')
+            raise RuntimeError('Node runtime was not found. Pass --node or use the complete application distribution.')
         node = Path(found)
     work = target.parent / (target.stem + '.forge-build')
     work.mkdir(parents=True, exist_ok=True)

@@ -5,11 +5,13 @@ The [project MIT licence](LICENSE), copyright 2026 MrProhaMaster, applies to Iro
 | Component | Use | Terms |
 | --- | --- | --- |
 | Three.js 0.186.1 | Local 3D viewer; MIT, copyright Three.js authors | [Three.LICENSE.txt](licenses/Three.LICENSE.txt); vendoring also creates `app/web/vendor/LICENSE` |
-| Node.js 24.19.0 | Windows folder distribution: `runtime/node.exe` | [Node.LICENSE.txt](licenses/Node.LICENSE.txt), including bundled dependency notices |
+| Node.js 24.19.0 | Windows `runtime/node.exe`; Linux x64 `runtime/node` | [Node.LICENSE.txt](licenses/Node.LICENSE.txt), including bundled dependency notices |
 | .NET Runtime 8.0.32 | Self-contained Windows launcher; MIT and third-party terms | [DotNetRuntime.LICENSE.txt](licenses/DotNetRuntime.LICENSE.txt), [THIRD-PARTY-NOTICES](licenses/DotNetRuntime.THIRD-PARTY-NOTICES.txt) |
 | .NET SDK 8.0.426 | Separate launcher-build and local-preparation tool; the SDK is not included in the EXE package | [DotNetSDK.LICENSE.txt](licenses/DotNetSDK.LICENSE.txt), [ThirdPartyNotices](licenses/DotNetSDK.ThirdPartyNotices.txt) |
 
 The Node.js LICENSE is copied unchanged from the [official v24.19.0 tag](https://github.com/nodejs/node/blob/v24.19.0/LICENSE). The local executable version was checked with `--version`. `IronHandsForge.runtimeconfig.json` identifies .NET Runtime 8.0.32; its licence and notices were copied from `Microsoft.NETCore.App.Runtime.win-x64/8.0.32`, restored by SDK 8.0.426. SDK licence/notices came from that local SDK distribution. The Three.js LICENSE was copied from the package verified by SHA-512 in `scripts/vendor-three.mjs`.
+
+The Linux x64 distribution uses the official Node.js Linux x64 binary, checked against Node.js's published SHA-256 list and rechecked after copying. Its launcher runs on the bundled Node runtime; the Linux package does not include or require the .NET runtime. Standard Linux system libraries and a desktop browser remain supplied by the operating system. See [Linux distribution](docs/linux.md).
 
 **Local-preparation dependencies**
 

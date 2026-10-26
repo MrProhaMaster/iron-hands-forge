@@ -2,6 +2,8 @@
 
 **Windows x64 launch.** Download the ZIP from [Releases](https://github.com/MrProhaMaster/iron-hands-forge/releases), extract the whole folder, and run `IronHandsForge.exe`. Keep `app/`, `data/`, `runtime/`, `shared/`, `tools/`, and the .NET files beside it. The EXE needs the complete folder. It opens your browser; leave the launcher window open. Ctrl+C or closing that window stops its server. Node.js and the .NET Runtime are bundled.
 
+**Linux x64 launch.** Extract the separate Linux `.tar.gz` and run `./IronHandsForge` (or `./IronHandsForge.sh`). The native Linux Node.js runtime and the same complete armour library are included. Wine, .NET, system Node.js, and an installed game are not needed. A desktop browser is required. Settings and builds use XDG user directories. See [Linux launch, Blender transfer and packaging](docs/linux.md).
+
 **Ready on first launch.** The release includes the complete armour library for all seven supported classes, the paint catalogue, and the four shared walk/run clips. No installed game, resource preparation, Internet connection, Python, or SDK is needed to customise armour or prepare a GLB. Extract the whole ZIP before starting; do not run the EXE from inside the archive.
 
 **Resources** is an optional setting for a different prepared library. **Use included armour** restores the packaged library. An unavailable saved library falls back to the included data automatically. Explicit `--data-root` paths remain authoritative and report missing resources rather than silently using another library. Developers can still prepare custom resources with [local preparation](docs/local-preparation.md).
