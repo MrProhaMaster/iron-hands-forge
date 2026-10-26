@@ -1,0 +1,39 @@
+{
+  "schema": "iron-hands-forge",
+  "version": 1,
+  "kind": "soldier",
+  "catalog": {
+    "game": "SM2",
+    "build": "26074365"
+  },
+  "soldiers": [
+    {
+      "id": "techmarine-1",
+      "role": "Techmarine",
+      "classId": "PVE_PVP_ENGINEER",
+      "selection": {
+        "HELMET": "helmet_engineer_common_01",
+        "BACKPACK": "backpack_engineer_common_01",
+        "CHEST": "chest_engineer_common_01",
+        "LEFT_PAULDRON": "left_pauldron_engineer_common_01",
+        "RIGHT_PAULDRON": "right_pauldron_engineer_common_01",
+        "LEFT_GAUNTLET": "left_gauntlet_engineer_common_01",
+        "RIGHT_GAUNTLET": "right_gauntlet_engineer_common_01",
+        "LEFT_GREAVE": "left_greave_engineer_common_01",
+        "RIGHT_GREAVE": "right_greave_engineer_common_01",
+        "VANITY_3": "vanity_engineer_mastercrafted_01"
+      },
+      "paint": {
+        "armor": "#171B22",
+        "metal": "#B3BDC9",
+        "lenses": "#EE291C"
+      },
+      "motion": {
+        "gait": "run",
+        "stance": "unarmed",
+        "speedPct": 200,
+        "inPlace": true
+      }
+    }
+  ]
+}
