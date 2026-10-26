@@ -1,13 +1,15 @@
 [CmdletBinding()]
 param(
     [string]$DistributionDirectory,
-    [Parameter(Mandatory=$true)][string]$DataRoot,
+    [string]$DataRoot,
     [ValidateRange(0,65535)][int]$Port=0
 )
 $ErrorActionPreference = 'Stop'
 $productRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if (-not $DistributionDirectory) { $DistributionDirectory = Join-Path $productRoot 'dist/IronHandsForge-win-x64' }
 $DistributionDirectory = [IO.Path]::GetFullPath($DistributionDirectory)
+$explicitDataRoot = $PSBoundParameters.ContainsKey('DataRoot')
+if (-not $DataRoot) { $DataRoot = Join-Path $DistributionDirectory 'data' }
 $DataRoot = [IO.Path]::GetFullPath($DataRoot)
 $qaRoot = Join-Path $productRoot ('.build/distribution-qa-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))
 [void][IO.Directory]::CreateDirectory($qaRoot)
@@ -15,10 +17,11 @@ $state = Join-Path $qaRoot 'state'
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$Port)
 $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
 $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $DistributionDirectory 'IronHandsForge.exe'))
-$start.WorkingDirectory=$DistributionDirectory; $start.UseShellExecute=$false
+$start.WorkingDirectory=$qaRoot; $start.UseShellExecute=$false
 $start.CreateNoWindow=$true; $start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
 $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
-foreach ($argument in @('--no-browser','--data-root',$DataRoot,'--state-root',$state,'--port',"$port")) { $start.ArgumentList.Add($argument) }
+foreach ($argument in @('--no-browser','--state-root',$state,'--port',"$port")) { $start.ArgumentList.Add($argument) }
+if ($explicitDataRoot) { $start.ArgumentList.Add('--data-root'); $start.ArgumentList.Add($DataRoot) }
 $process = [Diagnostics.Process]::Start($start)
 try {
     $base = "http://127.0.0.1:$port"
@@ -31,6 +34,8 @@ try {
     if (-not $health) { throw 'Published application did not become healthy.' }
     $package = Get-Content -LiteralPath (Join-Path $DistributionDirectory 'package.json') -Raw | ConvertFrom-Json
     if ($health.appId -ne 'iron-hands-forge' -or $health.version -ne $package.version -or $health.appRoot -ne $DistributionDirectory -or $health.dataRoot -ne $DataRoot -or $health.stateRoot -ne $state -or -not $health.ready) { throw 'Published application identity/root health check failed.' }
+    if (-not $health.resourcesReady) { throw 'The complete armour library must be ready on first launch.' }
+    if (-not $explicitDataRoot -and $health.dataSource -ne 'bundled') { throw 'Clean launch must select the included library without a resource override.' }
     $page = Invoke-WebRequest -Uri "$base/" -TimeoutSec 8
     if ($page.Content -notmatch '<html lang="en"' -or $page.Content -notmatch 'Share build') { throw 'Published interface is not the English version.' }
     $routes = @('/','/web/configurator.js','/web/forge-tools.js','/web/vendor/three.module.js','/web/vendor/addons/loaders/GLTFLoader.js','/web/vendor/addons/utils/SkeletonUtils.js','/shared/recipe-codec.mjs','/shared/motion-policy.mjs','/shared/ui-labels.mjs','/shared/eight-influence-skinning.mjs')
@@ -39,6 +44,7 @@ try {
         if ($response.StatusCode -ne 200) { throw "Published route failed: $route" }
     }
     $catalog = Invoke-RestMethod -Uri "$base/api/catalog" -TimeoutSec 15
+    if (-not $catalog.configured -or $catalog.manifest.assets.Count -ne 7) { throw 'The complete seven-class offline model catalogue is required.' }
     $motions = [Collections.Generic.List[object]]::new()
     if ($health.resourcesReady) {
         $motionClasses = @($catalog.motionBindings.classes.PSObject.Properties | Where-Object { $_.Value.status -eq 'validated' })
@@ -53,6 +59,12 @@ try {
                     $motions.Add([ordered]@{classId=$classId;gait=$gait;style=$style;fps=$motion.fps;frameCount=$motion.frameCount;duration=$motion.duration;channels=$motion.channels.Count;bindingPolicy=$motion.binding.bindingPolicy})
                 }
             }
+        }
+    }
+    foreach ($model in $catalog.manifest.assets) {
+        foreach ($extension in @('glb','json')) {
+            $response=Invoke-WebRequest -Uri "$base/retail-v5/$($model.asset).$extension" -Method Head -TimeoutSec 8
+            if ($response.StatusCode -ne 200 -or [long]$response.Headers['Content-Length'][0] -le 0) { throw "Missing packaged model resource: $($model.asset).$extension" }
         }
     }
     foreach ($required in @('tools/build_from_recipe.mjs','tools/import_recipe_blender.py','scripts/prepare-data.ps1','README.md','LICENSE','THIRD_PARTY_NOTICES.md','licenses/Node.LICENSE.txt','licenses/Three.LICENSE.txt','licenses/DotNetRuntime.LICENSE.txt','licenses/DotNetRuntime.THIRD-PARTY-NOTICES.txt','docs/local-preparation.md','docs/build-codes.md','examples/tactical-build.json')) {

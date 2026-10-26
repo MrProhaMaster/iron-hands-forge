@@ -19,4 +19,4 @@ The checked upstream checkouts contain no LICENSE file. Iron Hands Forge's MIT l
 
 **Game resources**
 
-Users prepare models, animations, textures, and catalogues from their own installed Space Marine 2 files. These resources remain local and are not included in the public source, application ZIP, or IHF1 share codes. Rights to Warhammer 40,000, Space Marine 2, and related game materials remain with their respective rights holders.
+The application distribution includes a prepared armour library containing models, catalogues, and animation clips derived from Space Marine 2. These prepared resources are separate from the public Git source and retain their original rights; they are not covered by the project MIT licence. Raw game archives and extractor binaries are not included. IHF1 codes contain selections and colours, not model data. Rights to Warhammer 40,000, Space Marine 2, and related game materials remain with their respective rights holders.

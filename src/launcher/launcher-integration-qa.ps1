@@ -14,11 +14,12 @@ New-Item -ItemType HardLink -Path (Join-Path $fixtureRoot 'runtime/node.exe') -T
 @'
 const http = require('node:http');
 const path = require('node:path');
+const fs = require('node:fs');
 const args = process.argv.slice(2);
 const val = (name, def) => { const i=args.indexOf(name); return i<0?def:args[i+1]; };
 const root = path.resolve(__dirname, '..');
 const port = Number(val('--port', 8767));
-const info = {appId:val('--app-id','iron-hands-forge'),version:'0.1.0',appRoot:root,
+const info = {appId:val('--app-id','iron-hands-forge'),version:JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version,appRoot:root,
  dataRoot:val('--data-root',path.join(root,'data')),stateRoot:val('--state-root',path.join(root,'state')),
  port,ready:true,resourcesReady:true,pid:process.pid,
  environment:{TEMP:process.env.TEMP,TMP:process.env.TMP,NODE_COMPILE_CACHE:process.env.NODE_COMPILE_CACHE,NODE_DISABLE_COMPILE_CACHE:process.env.NODE_DISABLE_COMPILE_CACHE}};
@@ -74,6 +75,21 @@ function Stop-Launcher([Diagnostics.Process]$Process, [int]$Port) {
 function Assert-Equal($Actual, $Expected, [string]$Message) {
     if ($Actual -ne $Expected) { throw "$Message : expected '$Expected', got '$Actual'." }
 }
+function New-LibraryFixture([string]$Directory) {
+    $roster = Join-Path $Directory 'production/roster'
+    $source = Join-Path $Directory 'assets/characters/SM2-retail-constructors/source-v5'
+    [void][IO.Directory]::CreateDirectory($roster)
+    [void][IO.Directory]::CreateDirectory($source)
+    '{"classes":[{"id":"PVE_PVP_SOLDIER","available":true,"tpl":"fixture_soldier","slots":[]}]}' | Set-Content -LiteralPath (Join-Path $roster 'armor-options.json') -Encoding utf8
+    '{"colors":[]}' | Set-Content -LiteralPath (Join-Path $roster 'armor-paints.json') -Encoding utf8
+    '{"assets":[{"asset":"fixture_soldier","transformValidation":"passed","restSkinValidation":"passed","weightPackingValidation":"passed","skinProfileWeldValidation":"passed"}]}' | Set-Content -LiteralPath (Join-Path $source 'manifest.json') -Encoding utf8
+    '{"meshes":[{"name":"fixture"}]}' | Set-Content -LiteralPath (Join-Path $source 'fixture_soldier.json') -Encoding utf8
+    $bytes = [byte[]]::new(28)
+    [BitConverter]::GetBytes([uint32]0x46546c67).CopyTo($bytes,0)
+    [BitConverter]::GetBytes([uint32]2).CopyTo($bytes,4)
+    [BitConverter]::GetBytes([uint32]28).CopyTo($bytes,8)
+    [IO.File]::WriteAllBytes((Join-Path $source 'fixture_soldier.glb'),$bytes)
+}
 function Test-Data([string]$Name, [string[]]$Arguments, [string]$ExpectedData, [int]$Port) {
     $child = Start-Launcher $Arguments $Name
     $health = Wait-Health $Port
@@ -94,14 +110,28 @@ try {
     if (-not $invalid.WaitForExit(5000)) { throw 'Invalid argument command did not exit.' }
     Assert-Equal $invalid.ExitCode 1 'Invalid argument exit'
     $results.Add([ordered]@{test='help-and-invalid-CLI';passed=$true})
+    New-LibraryFixture (Join-Path $fixtureRoot 'data')
     $port = Free-Port
     Test-Data 'default-data-root' @('--port',"$port") (Join-Path $fixtureRoot 'data') $port
+    New-LibraryFixture (Join-Path $fixtureRoot 'saved data')
     @{dataRoot='saved data'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $state 'settings.json') -Encoding utf8
     $port = Free-Port
     Test-Data 'saved-settings-data-root' @('--port',"$port") (Join-Path $fixtureRoot 'saved data') $port
+    $staleData = Join-Path $fixtureRoot 'removed prepared folder'
+    @{dataRoot=$staleData} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $state 'settings.json') -Encoding utf8
+    $port = Free-Port
+    Test-Data 'stale-settings-fall-back-to-bundled-root' @('--port',"$port") (Join-Path $fixtureRoot 'data') $port
+    if (Test-Path -LiteralPath $staleData) { throw 'The launcher created the stale external data folder.' }
+    New-LibraryFixture (Join-Path $fixtureRoot 'данные cfg')
     $port = Free-Port
     @{dataRoot='данные cfg';port=$port} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureRoot 'forge.config.json') -Encoding utf8
     Test-Data 'config-overrides-settings-and-config-port' @() (Join-Path $fixtureRoot 'данные cfg') $port
+    $staleConfig = Join-Path $fixtureRoot 'old config resources'
+    @{dataRoot=$staleConfig} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureRoot 'forge.config.json') -Encoding utf8
+    $port = Free-Port
+    Test-Data 'stale-config-falls-back-without-creating-directory' @('--port',"$port") (Join-Path $fixtureRoot 'data') $port
+    if (Test-Path -LiteralPath $staleConfig) { throw 'The launcher created the stale configured data folder.' }
+    @{dataRoot='данные cfg'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureRoot 'forge.config.json') -Encoding utf8
     $port = Free-Port
     $cliData = Join-Path $fixtureRoot 'CLI data with spaces'
     $child = Start-Launcher @('--port',"$port",'--data-root',$cliData) 'CLI override'

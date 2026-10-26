@@ -2,6 +2,7 @@
 param(
     [string]$DotnetExe,
     [string]$NodeExe,
+    [string]$DataRoot,
     [string]$OutputDirectory,
     [switch]$IncludeLocalConfig
 )
@@ -37,6 +38,9 @@ function Copy-DirectoryContents([string]$Source, [string]$Destination) {
 
 $DotnetExe = Resolve-Tool $DotnetExe @((Join-Path $productRoot '../../tools/sm2-extractor/dotnet/dotnet.exe')) 'dotnet.exe'
 $NodeExe = Resolve-Tool $NodeExe @((Join-Path $productRoot 'runtime/node.exe'), (Join-Path $productRoot '../../tools/node/node.exe')) 'node.exe'
+if (-not $DataRoot) { throw 'Pass -DataRoot with a complete prepared library. Release builds include all seven classes for offline first launch.' }
+$DataRoot = [IO.Path]::GetFullPath($DataRoot)
+if (-not (Test-Path -LiteralPath $DataRoot -PathType Container)) { throw "Prepared resource folder not found: $DataRoot" }
 foreach ($required in @($projectFile, $nugetConfig, (Join-Path $productRoot 'package.json'), (Join-Path $productRoot 'app/server.cjs'))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required application file is missing: $required" }
 }
@@ -67,6 +71,8 @@ foreach ($folder in @('dotnet-home', 'nuget/packages', 'nuget/http', 'nuget/plug
 [void][IO.Directory]::CreateDirectory($publishRoot)
 
 try {
+    & $NodeExe (Join-Path $productRoot 'scripts/vendor-three.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Verified local viewer dependencies could not be prepared.' }
     & $DotnetExe restore $projectFile --runtime win-x64 --configfile $nugetConfig --packages $buildEnvironment.NUGET_PACKAGES -p:SelfContained=true -p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE." }
     & $DotnetExe publish $projectFile --configuration Release --runtime win-x64 --self-contained true --no-restore --output $publishRoot -p:PublishSingleFile=false -p:UseAppHost=true -p:PublishReadyToRun=false -p:DebugType=None -p:DebugSymbols=false
@@ -85,6 +91,8 @@ try {
     $runtimeRoot = Join-Path $publishRoot 'runtime'
     [void][IO.Directory]::CreateDirectory($runtimeRoot)
     Copy-Item -LiteralPath $NodeExe -Destination (Join-Path $runtimeRoot 'node.exe') -Force
+    & $NodeExe (Join-Path $productRoot 'scripts/bundle-resources.mjs') --data-root $DataRoot --out (Join-Path $publishRoot 'data')
+    if ($LASTEXITCODE -ne 0) { throw "Bundled resource preparation failed with exit code $LASTEXITCODE." }
     foreach ($license in @('LICENSE', 'LICENSE.txt')) {
         $licensePath = Join-Path (Split-Path -Parent $NodeExe) $license
         if (Test-Path -LiteralPath $licensePath -PathType Leaf) { Copy-Item -LiteralPath $licensePath -Destination (Join-Path $runtimeRoot ('NODE-' + $license)) -Force }
@@ -105,6 +113,7 @@ try {
         selfContained = $true
         singleFile = $false
         nodeVersion = $nodeVersion
+        resources = 'bundled-seven-class-offline-library'
         builtAt = [DateTimeOffset]::UtcNow.ToString('O')
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publishRoot 'launcher-build.json') -Encoding utf8
     Write-Output "Portable application: $publishRoot"

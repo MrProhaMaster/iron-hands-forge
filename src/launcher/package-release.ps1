@@ -12,7 +12,21 @@ if (Test-Path -LiteralPath (Join-Path $releaseRoot 'forge.config.json')) { throw
 $allowedFolders=@('app','shared','tools','docs','scripts','licenses','examples','runtime')
 $privateFolders=@('state','cache','data','.build','tests','__pycache__','node_modules','bin','obj')
 $allowedTop=@('.dll','.exe','.json','.md','.txt')
+$bundleRoot=Join-Path $releaseRoot 'data'
+$bundleManifestPath=Join-Path $bundleRoot 'bundle-manifest.json'
+$bundleTool=Join-Path $releaseRoot 'scripts/bundle-resources.mjs'
+$node=Join-Path $releaseRoot 'runtime/node.exe'
+foreach ($required in @($node,$bundleTool,$bundleManifestPath)) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Offline release input is missing: $required" }
+}
+& $node $bundleTool --verify $bundleRoot
+if ($LASTEXITCODE -ne 0) { throw 'Bundled resources failed checksum/completeness verification.' }
+$bundle=Get-Content -LiteralPath $bundleManifestPath -Raw | ConvertFrom-Json
+$resourceFiles=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+[void]$resourceFiles.Add('data/bundle-manifest.json')
+foreach ($entry in $bundle.files) { [void]$resourceFiles.Add('data/'+$entry.path) }
 function Is-Private([string]$Relative) {
+    if ($Relative.StartsWith('data/',[StringComparison]::Ordinal)) { return -not $resourceFiles.Contains($Relative) }
     $parts=$Relative -split '[\\/]'
     if (@($parts|Where-Object { $_ -in $privateFolders }).Count) { return $true }
     $leaf=$parts[-1]
@@ -26,6 +40,7 @@ foreach ($folder in $allowedFolders) {
     $directory=Join-Path $releaseRoot $folder
     if (Test-Path -LiteralPath $directory -PathType Container) { $files+=@(Get-ChildItem -LiteralPath $directory -File -Recurse -Force) }
 }
+foreach ($relative in $resourceFiles) { $files+=Get-Item -LiteralPath (Join-Path $releaseRoot $relative) }
 $included=[Collections.Generic.List[object]]::new();$excluded=[Collections.Generic.List[string]]::new()
 foreach ($file in $files|Sort-Object FullName -Unique) {
     $relative=[IO.Path]::GetRelativePath($releaseRoot,$file.FullName).Replace('\','/')
@@ -55,7 +70,7 @@ $sha=(Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash
 ($sha+'  '+(Split-Path -Leaf $archivePath))|Set-Content -LiteralPath ($archivePath+'.sha256') -Encoding utf8
 [long]$uncompressedBytes=0
 foreach ($item in $included) { $uncompressedBytes += [long]$item.bytes }
-$report=[ordered]@{passed=$true;archive=$archivePath;sha256=$sha;zipBytes=(Get-Item -LiteralPath $archivePath).Length;files=$included.Count;uncompressedBytes=$uncompressedBytes;rootFolder=$prefix;excluded=$excluded.ToArray();userStateAndGameResourcesIncluded=$false;createdAt=[DateTimeOffset]::UtcNow.ToString('O')}
+$report=[ordered]@{passed=$true;archive=$archivePath;sha256=$sha;zipBytes=(Get-Item -LiteralPath $archivePath).Length;files=$included.Count;uncompressedBytes=$uncompressedBytes;rootFolder=$prefix;excluded=$excluded.ToArray();bundledResourcesIncluded=$true;bundledResourceFiles=$resourceFiles.Count;userStateIncluded=$false;rawGameArchivesIncluded=$false;createdAt=[DateTimeOffset]::UtcNow.ToString('O')}
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $reportRoot=Join-Path $projectRoot '.build'
 [void][IO.Directory]::CreateDirectory($reportRoot)

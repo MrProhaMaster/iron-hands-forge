@@ -52,14 +52,14 @@ internal static class Program
         var config = ReadJson<Configuration>(Path.Combine(productRoot, "forge.config.json")) ?? new();
         var stateRoot = ResolvePath(productRoot, options.StateRoot, "state");
         var settings = ReadJson<Configuration>(Path.Combine(stateRoot, "settings.json"));
-        var dataRoot = ResolvePath(productRoot, options.DataRoot ?? config.DataRoot ?? settings?.DataRoot, "data");
+        var dataRoot = ResolveLibraryDataRoot(productRoot, options.DataRoot, config.DataRoot, settings?.DataRoot);
         var preferredPort = options.Port ?? config.Port ?? 8767;
         if (preferredPort is < 1 or > 65535) throw new ArgumentException("The configured port must be between 1 and 65535.");
         var cacheRoot = Path.Combine(productRoot, "cache");
         var temporaryRoot = Path.Combine(cacheRoot, "tmp");
         var nodeCache = Path.Combine(cacheRoot, "node");
         var logRoot = Path.Combine(stateRoot, "logs");
-        foreach (var path in new[] { stateRoot, dataRoot, cacheRoot, temporaryRoot, nodeCache, logRoot }) Directory.CreateDirectory(path);
+        foreach (var path in new[] { stateRoot, cacheRoot, temporaryRoot, nodeCache, logRoot }) Directory.CreateDirectory(path);
         Environment.SetEnvironmentVariable("TEMP", temporaryRoot);
         Environment.SetEnvironmentVariable("TMP", temporaryRoot);
         Environment.SetEnvironmentVariable("NODE_COMPILE_CACHE", nodeCache);
@@ -259,6 +259,107 @@ internal static class Program
 
     private static string NormalizePath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     private static string ResolvePath(string root, string? value, string fallback) => NormalizePath(Path.Combine(root, string.IsNullOrWhiteSpace(value) ? fallback : value));
+
+    private static string ResolveLibraryDataRoot(string root, string? explicitPath, string? configuredPath, string? savedPath)
+    {
+        // An explicit CLI path is intentional, including one whose resources are not ready yet.
+        if (explicitPath is not null)
+        {
+            if (string.IsNullOrWhiteSpace(explicitPath)) throw new ArgumentException("--data-root requires a folder path.");
+            return ResolvePath(root, explicitPath, "data");
+        }
+        foreach (var value in new[] { configuredPath, savedPath })
+        {
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            try
+            {
+                var candidate = ResolvePath(root, value, "data");
+                if (HasPreparedLibrary(candidate)) return candidate;
+            }
+            catch (ArgumentException) { }
+            catch (NotSupportedException) { }
+        }
+        return Path.Combine(root, "data");
+    }
+
+    private static bool HasPreparedLibrary(string root)
+    {
+        // Check metadata and file lengths, never hash or load the multi-gigabyte GLB payloads here.
+        try
+        {
+            using var catalogue = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "production", "roster", "armor-options.json")));
+            using var paints = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "production", "roster", "armor-paints.json")));
+            var source = Path.Combine(root, "assets", "characters", "SM2-retail-constructors", "source-v5");
+            using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "manifest.json")));
+            if (!catalogue.RootElement.TryGetProperty("classes", out var classes) || classes.ValueKind != JsonValueKind.Array ||
+                !paints.RootElement.TryGetProperty("colors", out var colors) || colors.ValueKind != JsonValueKind.Array ||
+                !manifest.RootElement.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return false;
+            var ready = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var asset in assets.EnumerateArray())
+            {
+                if (!asset.TryGetProperty("asset", out var nameValue) || nameValue.GetString() is not { Length: > 0 } name ||
+                    name.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_')) continue;
+                var validated = new[] { "transformValidation", "restSkinValidation", "weightPackingValidation", "skinProfileWeldValidation" }
+                    .All(key => asset.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() == "passed");
+                if (!validated || !IsModelMetadata(Path.Combine(source, name + ".json")) || !IsModelFile(Path.Combine(source, name + ".glb"))) continue;
+                ready.Add(name);
+            }
+            var availableClassIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in classes.EnumerateArray())
+                if (item.TryGetProperty("available", out var available) && available.ValueKind == JsonValueKind.True &&
+                    item.TryGetProperty("tpl", out var template) && ready.Contains(template.GetString() ?? "") &&
+                    item.TryGetProperty("id", out var id) && id.GetString() is { } classId) availableClassIds.Add(classId);
+            if (availableClassIds.Count == 0) return false;
+
+            var bundleFile = Path.Combine(root, "bundle-manifest.json");
+            if (!File.Exists(bundleFile)) return true; // Keep valid legacy partial/custom libraries usable.
+            using var bundle = JsonDocument.Parse(File.ReadAllText(bundleFile));
+            if (!bundle.RootElement.TryGetProperty("schema", out var schema) || schema.GetString() != "iron-hands-forge-resource-bundle" ||
+                !bundle.RootElement.TryGetProperty("version", out var version) || version.GetInt32() != 1 ||
+                !bundle.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array || files.GetArrayLength() == 0 ||
+                !bundle.RootElement.TryGetProperty("classIds", out var ids) || ids.ValueKind != JsonValueKind.Array || ids.GetArrayLength() == 0) return false;
+            foreach (var id in ids.EnumerateArray()) if (!availableClassIds.Contains(id.GetString() ?? "")) return false;
+            foreach (var entry in files.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("path", out var relativeValue) || relativeValue.GetString() is not { Length: > 0 } relative ||
+                    Path.IsPathRooted(relative) || relative.Split('/', '\\').Contains("..") ||
+                    !entry.TryGetProperty("bytes", out var byteCount) || !byteCount.TryGetInt64(out var expected) || expected <= 0) return false;
+                var file = NormalizePath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+                if (!file.StartsWith(NormalizePath(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(file) || new FileInfo(file).Length != expected) return false;
+            }
+            return true;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (JsonException) { return false; }
+        catch (InvalidOperationException) { return false; }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
+    }
+
+    private static bool IsModelMetadata(string file)
+    {
+        try
+        {
+            using var metadata = JsonDocument.Parse(File.ReadAllText(file));
+            return metadata.RootElement.TryGetProperty("meshes", out var meshes) && meshes.ValueKind == JsonValueKind.Array && meshes.GetArrayLength() > 0;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (JsonException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    private static bool IsModelFile(string file)
+    {
+        if (!File.Exists(file)) return false;
+        using var stream = File.OpenRead(file);
+        if (stream.Length < 28 || stream.Length > uint.MaxValue) return false;
+        Span<byte> header = stackalloc byte[12];
+        return stream.Read(header) == header.Length && BitConverter.ToUInt32(header[..4]) == 0x46546c67 &&
+            BitConverter.ToUInt32(header.Slice(4, 4)) == 2 && BitConverter.ToUInt32(header.Slice(8, 4)) == stream.Length;
+    }
 
     private static T? ReadJson<T>(string path)
     {
