@@ -204,9 +204,24 @@
       },
       "status": "validated",
       "bindingPolicy": "shared-preview-validated"
+    },
+    "PVE_PVP_ENGINEER": {
+      "asset": "cc_sm_constructor_engineer",
+      "clipIds": {
+        "walk": {
+          "unarmed": "walk_unarmed",
+          "armed": "walk_armed"
+        },
+        "run": {
+          "unarmed": "run_unarmed",
+          "armed": "run_armed"
+        }
+      },
+      "status": "validated",
+      "bindingPolicy": "shared-preview-validated"
     }
   },
   "canonicalGameFacialController": false,
   "inheritedOnlyChannelPolicy": "Preserve target local bind only when positionMode and rotationMode are both fixed; inherit animated parents.",
-  "validationScope": "Six verified V5 playable rigs with assembled default armor and bare heads, using shared native preview body loops."
+  "validationScope": "Seven verified V5 playable rigs using shared native preview body loops; Techmarine default and mastercrafted servo-arm preserve all source influences and follow animated body ancestors."
 }
