@@ -110,7 +110,8 @@ class ReviewTests(unittest.TestCase):
         if not generated.is_file():self.skipTest('BuildOnly smoke helpers not ready')
         text=generated.read_text(encoding='utf-8-sig');active=re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
         start=active.index('private void AddVertexSkinningData( Vertex vertex )');end=active.index('private void AddVertexWeight',start);body=active[start:end]
-        self.assertIn('WEIGHT8 is not supported',body);self.assertNotIn('AddVertexWeight( vertex.Index4',body)
+        self.assertIn('Unsupported WEIGHT8 packing',body);self.assertIn('vertex.Weight8!=0',body)
+        self.assertIn('AddChecked(vertex.Index4,vertex.Weight4)',body);self.assertIn('AddChecked(vertex.Index5,vertex.Weight5)',body)
         for n in (1,2,3):self.assertIn(f'AddVertexWeight( vertex.Index{n}',body)
         self.assertIn('(Object.MatrixLT * invMatrix).ToAssimp()',active);self.assertIn('boneObjectId < 0 || weight <= 0 || boneObjectId >= Graph.objects.Count',active)
         project=(CORE/'src/LibSaber/src/LibSaber.SpaceMarine2/LibSaber.SpaceMarine2.csproj').read_text();self.assertNotIn('ILRepack',project);self.assertIn('[16.1.2]',project)
