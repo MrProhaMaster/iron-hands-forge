@@ -29,7 +29,7 @@ $env:TMP = $env:TEMP
   -r ./tools/requirements-prepare.txt
 ```
 
-Preparation includes six classes: Tactical (`Soldier`), Sniper, Heavy (`Support`), Assault (`Raider`), Bulwark (`Tank`), and Vanguard (`Berserk`). Techmarine (`Engineer`) is excluded because its additional manipulator requires support for more bone influences. `Medic` does not yet have a complete game-catalogue binding. Keep prepared resources out of Git.
+Preparation includes seven classes: Tactical (`Soldier`), Sniper, Heavy (`Support`), Assault (`Raider`), Bulwark (`Tank`), Vanguard (`Berserk`), and Techmarine (`Engineer`). Techmarine includes its servo-arm hoses with all original bone influences, using a second glTF joint/weight set when required. `Medic` does not yet have a complete game-catalogue binding. Keep prepared resources out of Git.
 
 Main outputs:
 
@@ -38,7 +38,7 @@ Main outputs:
 - two walk clips and two run clips under `assets/animations/`;
 - private upstream sources, caches, and provenance under `tools/sm2-extractor/`.
 
-All six supported classes use the four verified shared preview clips described by `shared/motion-bindings.json`. The original game animation files remain unchanged. The preview preserves 83 listed fixed facial controls in the target bind pose, so heads retain their proportions while inheriting animated HEAD movement. This does not reproduce the full native game controller, foot IK, or secondary physics.
+All seven supported classes use the four verified shared preview clips described by `shared/motion-bindings.json`. The original game animation files remain unchanged. The preview preserves 83 listed fixed facial controls in the target bind pose, so heads retain their proportions while inheriting animated HEAD movement. This does not reproduce the full native game controller, foot IK, or secondary physics.
 
 Each generated model is checked against source weights for every vertex, vertex-to-triangle assignments, and skeleton matrices. Original UVs are restored after protection against incorrect vertex welding. Existing models are not silently replaced: use a new results folder for another source version.
 
@@ -51,3 +51,5 @@ Pinned upstream revisions:
 - StirlingLabs.Assimp.Net: `23.4.1`; native win-x64: `5.2.5.4`; YamlDotNet: `16.1.2`.
 
 IndexV2/LibSaber sources and compiled parser DLLs are not shipped in this repository. Preparation obtains them directly on your computer. Three small helper files are generated locally from the pinned upstream revision with functional changes. Third-party projects retain their own terms; the application licence does not cover them. Assimp.Net includes MIT/BSD notices, native Assimp uses BSD-3-Clause, and YamlDotNet uses MIT. See [third-party notices](../THIRD_PARTY_NOTICES.md).
+
+**Upgrading existing prepared resources.** Keep your data folder and saved recipes. Run the preparation command again with `-Assets cc_sm_constructor_engineer` to add Techmarine; the other constructors do not need to be extracted again. Use the updated application for eight-influence browser skinning. See [Techmarine support](techmarine.md) for scope and verification.

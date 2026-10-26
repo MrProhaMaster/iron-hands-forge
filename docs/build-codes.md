@@ -41,7 +41,7 @@ Use `shared/recipe-codec.mjs` or `tools/recipe_codec.py` instead of implementing
 | `paint` | `armor`, `metal` and `lenses` colours |
 | `motion` | Optional `gait`, `stance`, integer `speedPct` (50–200), and `inPlace: true` |
 
-Omitting `motion` exports a static rigged model. `gait` is `walk` or `run`; `stance` is `unarmed` or `armed`. Armed preview means a two-handed grip; it does not attach a weapon automatically. The six supported class rigs use verified shared game loops. Fixed facial bind controls preserve the selected head's geometry; this is not the game's full facial, physics or locomotion controller.
+Omitting `motion` exports a static rigged model. `gait` is `walk` or `run`; `stance` is `unarmed` or `armed`. Armed preview means a two-handed grip; it does not attach a weapon automatically. The seven supported class rigs use verified shared game loops. Fixed facial bind controls preserve the selected head's geometry; this is not the game's full facial, physics or locomotion controller.
 
 A complete Tactical example is in [examples/tactical-build.json](../examples/tactical-build.json). It contains identifiers and colours only.
 
