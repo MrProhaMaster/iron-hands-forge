@@ -122,12 +122,15 @@ jobs:
           assert source['files'] == packaged['files'], 'Linux must include the same 22 armour payload files as the verified Windows release'
           PY
 
-      - name: Install pinned Chromium for offline browser acceptance
+      - name: Use the runner Chrome for offline browser acceptance
         shell: bash
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/forge-playwright" --no-package-lock --no-audit --no-fund playwright@1.62.1
-          "$RUNNER_TEMP/forge-playwright/node_modules/.bin/playwright" install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/forge-playwright" --ignore-scripts --no-package-lock --no-audit --no-fund --fetch-retries=2 --fetch-timeout=60000 playwright@1.62.1
+          browser="$(command -v google-chrome || command -v google-chrome-stable || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "FORGE_BROWSER=$browser" >> "$GITHUB_ENV"
 
       - name: Verify the extracted Linux release, lifecycle, relocation and offline customization
         shell: bash
