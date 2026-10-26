@@ -54,7 +54,7 @@ class Program {
         var completed=new List<AssetExport>(); var failures=new List<object>();
         void Manifest(bool done) {
           var temp=Path.Combine(output,"manifest.json.tmp");
-          File.WriteAllText(temp,JsonSerializer.Serialize(new{schemaVersion=2,extractorVersion="5.0-skin-safe-three-weight",kind=armorBatch?"armor_constructors":"space_marine_weapons",completed=done,transformValidation=done&&completed.All(x=>x.transformValidation=="passed")?"passed":"pending",validationBasis="mesh_to_bone_bind_matrix_products;finite_geometry;normalized_weights;auto_bolt_rifle_official_reference_scale",game,output,updatedAt=DateTimeOffset.UtcNow,selected=names.Count,exported=completed.Count,failed=failures.Count,assets=completed,failures},JsonOptions));
+          File.WriteAllText(temp,JsonSerializer.Serialize(new{schemaVersion=2,extractorVersion="5.1-skin-safe-eight-weight",kind=armorBatch?"armor_constructors":"space_marine_weapons",completed=done,transformValidation=done&&completed.All(x=>x.transformValidation=="passed")?"passed":"pending",validationBasis="mesh_to_bone_bind_matrix_products;finite_geometry;normalized_weights;auto_bolt_rifle_official_reference_scale",game,output,updatedAt=DateTimeOffset.UtcNow,selected=names.Count,exported=completed.Count,failed=failures.Count,assets=completed,failures},JsonOptions));
           File.Move(temp,Path.Combine(output,"manifest.json"),true);
         }
         Manifest(false);
@@ -187,6 +187,7 @@ class Program {
         NormalizeWeights(mesh);
         var skinProfileAudit=WriteSkinProfileAuditAndProtectVertices(mesh,profileStream,profileNames,profileNameIds);
         meshReports.Add(new{name=obj.GetName(),objectId=obj.id,lod=LodFor(obj),vertices=mesh.VertexCount,faces=mesh.FaceCount,bones=mesh.BoneCount,material=context.Scene.Materials[mesh.MaterialIndex].Name,
+          sourceGeometry=new{meshId=submesh.MeshId,submesh.BufferInfo.VertexOffset,submesh.BufferInfo.VertexCount,submesh.BufferInfo.FaceOffset,submesh.BufferInfo.FaceCount,buffers=template.GeometryGraph.Meshes[submesh.MeshId].Buffers.Select(mb=>new{mb.BufferId,mb.SubBufferOffset,flags=(int)template.GeometryGraph.Buffers[mb.BufferId].Flags,elementType=template.GeometryGraph.Buffers[mb.BufferId].ElementType.ToString(),template.GeometryGraph.Buffers[mb.BufferId].ElementSize,template.GeometryGraph.Buffers[mb.BufferId].StartOffset,template.GeometryGraph.Buffers[mb.BufferId].EndOffset})},
           skinProfileAudit,
           vertexBounds=new[]{new[]{mesh.Vertices.Min(v=>v.X),mesh.Vertices.Min(v=>v.Y),mesh.Vertices.Min(v=>v.Z)},new[]{mesh.Vertices.Max(v=>v.X),mesh.Vertices.Max(v=>v.Y),mesh.Vertices.Max(v=>v.Z)}},
           quantizationScale=submesh.Scale.HasValue?new[]{submesh.Scale.Value.X,submesh.Scale.Value.Y,submesh.Scale.Value.Z}:null,
@@ -245,7 +246,7 @@ class Program {
       ps=obj.ps,lod=LodFor(obj),submeshes=obj.SubMeshes.Select(s=>new{s.MeshId,s.NodeId,vertices=s.BufferInfo.VertexCount,faces=s.BufferInfo.FaceCount,material=s.Material?.MaterialName,texture=s.Material?.ShadingMaterialTexture})
     });
     profileStream.Flush(true);
-    var report=new {asset,extractorVersion="5.0-skin-safe-three-weight",transformValidation="passed",bindValidation,templateSource,dataName,objects=template.GeometryGraph.objects.Count,sourceSubmeshes=template.GeometryGraph.SubMeshes.Count,meshCount=context.Scene.MeshCount,vertices=context.Scene.Meshes.Sum(x=>x.VertexCount),faces=context.Scene.Meshes.Sum(x=>x.FaceCount),materials=context.Scene.Materials.Select(x=>x.Name),textures=template.TexList,meshes=meshReports,skinProfileAuditFile=profilePath,skinProfileBoneNames=profileNames,skinProfileAuditFormat="little-endian float32[vertexCount,6]: boneNameIndex0,weight0,boneNameIndex1,weight1,boneNameIndex2,weight2",lodDefinitions=template.lodDef,lodRoots=template.GeometryGraph.lodRoots,objectMetadata,assemblies=candidates,selectionStatus,file};
+    var report=new {asset,extractorVersion="5.1-skin-safe-eight-weight",transformValidation="passed",bindValidation,templateSource,dataName,objects=template.GeometryGraph.objects.Count,sourceSubmeshes=template.GeometryGraph.SubMeshes.Count,meshCount=context.Scene.MeshCount,vertices=context.Scene.Meshes.Sum(x=>x.VertexCount),faces=context.Scene.Meshes.Sum(x=>x.FaceCount),materials=context.Scene.Materials.Select(x=>x.Name),textures=template.TexList,meshes=meshReports,skinProfileAuditFile=profilePath,skinProfileBoneNames=profileNames,skinProfileAuditFormat="little-endian float32 boneNameIndex,weight pairs; per-mesh recordStride24 (three) or64 (eight), unused slots zero",lodDefinitions=template.lodDef,lodRoots=template.GeometryGraph.lodRoots,objectMetadata,assemblies=candidates,selectionStatus,file};
     File.WriteAllText(Path.Combine(output,asset+".json"),JsonSerializer.Serialize(report,JsonOptions));
     var summary=new AssetExport(asset,file,Path.Combine(output,asset+".json"),context.Scene.MeshCount,context.Scene.Meshes.Sum(x=>x.VertexCount),context.Scene.Meshes.Sum(x=>x.FaceCount),cleanFiles.ToArray(),selectionStatus,"passed");
     return summary;
@@ -283,16 +284,21 @@ class Program {
   static object WriteSkinProfileAuditAndProtectVertices(Mesh mesh,FileStream stream,List<string> names,Dictionary<string,int> nameIds) {
     if(mesh.VertexCount>=1<<24) throw new InvalidDataException("UV0 source vertex guard exceeds exact float integer range");
     if(mesh.TextureCoordinateChannels[7].Count>0) throw new InvalidDataException("All eight UV channels are occupied; cannot preserve source UVs while adding the export guard");
-    var records=new float[checked(mesh.VertexCount*6)];
+    var influenceCounts=new int[mesh.VertexCount];
+    foreach(var bone in mesh.Bones) foreach(var weight in bone.VertexWeights) if(weight.Weight>0) influenceCounts[weight.VertexID]++;
+    int maxInfluences=influenceCounts.DefaultIfEmpty(0).Max();
+    int slots=maxInfluences<=3?3:8;
+    if(maxInfluences>8) throw new InvalidDataException("Source skin contains more than eight influences");
+    var records=new float[checked(mesh.VertexCount*slots*2)];
     var counts=new byte[mesh.VertexCount];
     foreach(var bone in mesh.Bones) {
       if(!nameIds.TryGetValue(bone.Name,out var id)) {id=names.Count;nameIds.Add(bone.Name,id);names.Add(bone.Name);}
       foreach(var weight in bone.VertexWeights) {
         if(weight.Weight<=0) continue;
         int slot=counts[weight.VertexID]++;
-        if(slot>=3) throw new InvalidDataException("Validated WEIGHT4 source produced more than three actual influences");
-        records[weight.VertexID*6+slot*2]=id;
-        records[weight.VertexID*6+slot*2+1]=weight.Weight;
+        if(slot>=slots) throw new InvalidDataException("Source skin exceeds the audited influence record capacity");
+        records[weight.VertexID*slots*2+slot*2]=id;
+        records[weight.VertexID*slots*2+slot*2+1]=weight.Weight;
       }
     }
     long offset=stream.Position;
@@ -316,7 +322,7 @@ class Program {
     mesh.TextureCoordinateChannels[0].Clear();
     mesh.UVComponentCount[0]=2;
     for(int i=0;i<mesh.VertexCount;i++) mesh.TextureCoordinateChannels[0].Add(new Vector3D(i,0,0));
-    return new {byteOffset=offset,vertexCount=mesh.VertexCount,recordStride=24,sourceUsedVertexCount=used.Count,sourceUnusedVertexCount=mesh.VertexCount-used.Count,faceSourceIndexSha256=Convert.ToHexString(faceHash.GetHashAndReset()).ToLowerInvariant(),originalUVChannels,guard="UV0=(exact source vertex ID,0); original UV channels shifted +1; restore labels after export"};
+    return new {byteOffset=offset,vertexCount=mesh.VertexCount,recordStride=slots*8,maxInfluences,verticesAboveFourInfluences=influenceCounts.Count(n=>n>4),sourceUsedVertexCount=used.Count,sourceUnusedVertexCount=mesh.VertexCount-used.Count,faceSourceIndexSha256=Convert.ToHexString(faceHash.GetHashAndReset()).ToLowerInvariant(),originalUVChannels,guard="UV0=(exact source vertex ID,0); original UV channels shifted +1; restore labels after export"};
   }
 }
 
