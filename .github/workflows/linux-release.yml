@@ -23,9 +23,13 @@ jobs:
       FORGE_NODE: node
       PYTHONDONTWRITEBYTECODE: '1'
       NODE_OPTIONS: --max-old-space-size=6144
-      FORGE_PLAYWRIGHT: ${{ runner.temp }}/forge-playwright/node_modules/playwright
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/forge-playwright-browsers
     steps:
+      - name: Configure absolute QA dependency paths
+        shell: bash
+        run: |
+          echo "FORGE_PLAYWRIGHT=$RUNNER_TEMP/forge-playwright/node_modules/playwright" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/forge-playwright-browsers" >> "$GITHUB_ENV"
+
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified official tag
         with:
@@ -145,7 +149,10 @@ jobs:
           for name in [stem, stem + '.sha256']:
               source = workspace / 'dist' / name
               if source.is_file():
-                  os.link(source, artifact / name)
+                  try:
+                      os.link(source, artifact / name)
+                  except OSError:
+                      shutil.copy2(source, artifact / name)
           qa = artifact / 'qa'
           qa.mkdir(exist_ok=True)
           for source_name, target_name in [('forge-linux-provenance.json', 'provenance.json'), ('forge-node-tests.log', 'node-tests.log'), ('forge-python-tests.log', 'python-tests.log'), ('forge-build-linux.log', 'build-linux.log')]:
