@@ -1,11 +1,13 @@
 import {classLabel,slotLabel,optionLabel,roleLabel} from '/shared/ui-labels.mjs';
 import {motionPreviewChannels,classHasPreviewMotion} from '/shared/motion-policy.mjs';
+import {createEightInfluenceSkinning} from '/shared/eight-influence-skinning.mjs';
 import {attachForgeTools} from './forge-tools.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 
+const eightInfluenceSkinning=createEightInfluenceSkinning(THREE);
 const $=id=>document.getElementById(id), roles=['Sergeant','Rifleman','Comms specialist','Assault','Veteran'];
 const QA=new URLSearchParams(location.search).get('inspect')==='1';
 if(new URLSearchParams(location.search).has('qa'))history.replaceState(null,'',location.pathname);
@@ -13,7 +15,7 @@ const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(32,1,.01,100);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
-renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
 $('stage').append(renderer.domElement);
 const environment=new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
 scene.environment=environment;
@@ -98,21 +100,21 @@ async function chooseClass(classId){
   try{
     // The retail export names DDS resources that are not part of this geometry
     // preview. Keep material names, without requesting hundreds of absent files.
-    const loader=new GLTFLoader().register(parser=>({name:'MEDUSA_PREVIEW_MATERIALS',loadMaterial(index){return Promise.resolve(new THREE.MeshStandardMaterial({name:parser.json.materials?.[index]?.name||''}))}}));
+    const loader=new GLTFLoader().register(eightInfluenceSkinning.loaderPlugin).register(parser=>({name:'MEDUSA_PREVIEW_MATERIALS',loadMaterial(index){return Promise.resolve(new THREE.MeshStandardMaterial({name:parser.json.materials?.[index]?.name||''}))}}));
     const gltf=await loader.loadAsync(url,event=>{if(serial===loadSerial&&event.total)$('loading').textContent=`${classLabel(selected.id,selected.label)}: ${Math.round(event.loaded/event.total*100)}%`});
     if(serial!==loadSerial)return;
     if(mixer){mixer.stopAllAction();mixer.uncacheRoot(model);mixer=null;walkAction=null;walkPlaying=false;walkRest=[]}
-    if(model){scene.remove(model);model.traverse(o=>{if(o.isMesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose()}})}
+    if(model){scene.remove(model);model.traverse(o=>{if(o.isMesh){eightInfluenceSkinning.disposeMesh(o);o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])m.dispose()}})}
     model=gltf.scene;model.updateMatrixWorld(true);meshMap=new Map();groupMap=new Map();objectMeshMap=new Map();thumbCache.clear();
     model.userData.assetURL=assetKey;
     // Canonical V3/V4 keep the game's corrected bind matrices unchanged.
     // Only the older preview fallback needs a rest-pose rebind.
     const skeletons=new Set();model.traverse(o=>{if(o.isSkinnedMesh)skeletons.add(o.skeleton)});
     if(selected.sourceVersion<3)for(const skeleton of skeletons)skeleton.calculateInverses();
-    model.traverse(o=>{if(o.isSkinnedMesh){if(selected.sourceVersion<3)o.bind(o.skeleton,o.matrixWorld.clone());o.normalizeSkinWeights();o.frustumCulled=false}});
+    model.traverse(o=>{if(o.isSkinnedMesh){if(selected.sourceVersion<3)o.bind(o.skeleton,o.matrixWorld.clone());if(o.userData.forgeSkinInfluences!==8)o.normalizeSkinWeights();o.frustumCulled=false}});
     model.traverse(node=>{if(node.userData.source_name)node.traverse(c=>{if(c.isMesh)c.userData.sourceName=node.userData.source_name})});
     const sourceMeshes=new Map();
-    model.traverse(o=>{if(o.isMesh){const association=gltf.parser.associations.get(o),source=gltf.parser.json.meshes?.[association?.meshes]?.name;const original=o.userData.sourceName||source||o.name;o.userData.sourceName=original;o.material=(Array.isArray(o.material)?o.material:[o.material]).map(m=>materialFor(m,original));if(o.material.length===1)o.material=o.material[0];o.castShadow=true;o.receiveShadow=true;o.visible=false;if(!technical(o)){meshMap.set(original,o);meshMap.set(o.name,o);if(!sourceMeshes.has(original))sourceMeshes.set(original,[]);sourceMeshes.get(original).push(o)}}});
+    model.traverse(o=>{if(o.isMesh){const association=gltf.parser.associations.get(o),source=gltf.parser.json.meshes?.[association?.meshes]?.name;const original=o.userData.sourceName||source||o.name;o.userData.sourceName=original;o.material=(Array.isArray(o.material)?o.material:[o.material]).map(m=>materialFor(m,original));if(o.material.length===1)o.material=o.material[0];eightInfluenceSkinning.prepareMesh(o);o.castShadow=true;o.receiveShadow=true;o.visible=false;if(!technical(o)){meshMap.set(original,o);meshMap.set(o.name,o);if(!sourceMeshes.has(original))sourceMeshes.set(original,[]);sourceMeshes.get(original).push(o)}}});
     model.traverse(o=>{if(!o.isMesh){const descendants=allMeshes(o);if(descendants.length)groupMap.set(o.name,descendants)}});
     for(const [name,meshes]of sourceMeshes)groupMap.set(name,meshes);
     if(selected.isNative)for(const part of catalog.native.parts){if(part.parent){const children=resolve([part.id]);if(!groupMap.has(part.parent))groupMap.set(part.parent,[]);groupMap.get(part.parent).push(...children)}}
