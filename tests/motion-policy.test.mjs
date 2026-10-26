@@ -5,9 +5,9 @@ import {resolveMotionBinding,motionPreviewChannels,classHasPreviewMotion} from '
 
 // Public binding configuration only. No decoded game animation or model is loaded.
 const config=JSON.parse(fs.readFileSync(new URL('../shared/motion-bindings.json',import.meta.url),'utf8'));
-const classes={PVE_PVP_SOLDIER:'soldier',PVE_PVP_SNIPER:'sniper',PVE_PVP_SUPPORT:'support',PVE_PVP_RAIDER:'raider',PVE_PVP_TANK:'tank',PVE_PVP_BERSERK:'berserk'};
+const classes={PVE_PVP_SOLDIER:'soldier',PVE_PVP_SNIPER:'sniper',PVE_PVP_SUPPORT:'support',PVE_PVP_RAIDER:'raider',PVE_PVP_TANK:'tank',PVE_PVP_BERSERK:'berserk',PVE_PVP_ENGINEER:'engineer'};
 
-test('all six verified classes resolve four shared preview bindings',()=>{
+test('all seven verified classes resolve four shared preview bindings',()=>{
  for(const [classId,asset]of Object.entries(classes)){
   assert.equal(classHasPreviewMotion(config,classId),true);
   for(const gait of ['walk','run'])for(const stance of ['unarmed','armed']){
@@ -24,7 +24,7 @@ test('all six verified classes resolve four shared preview bindings',()=>{
 });
 
 test('unverified classes and prototype names cannot request movement',()=>{
- for(const classId of ['PVE_PVP_ENGINEER','PVE_PVP_MEDIC','constructor','__proto__','missing']){
+ for(const classId of ['PVE_PVP_MEDIC','constructor','__proto__','missing']){
   assert.equal(classHasPreviewMotion(config,classId),false);
   assert.throws(()=>resolveMotionBinding(config,classId,'walk','unarmed'),/not verified/);
  }

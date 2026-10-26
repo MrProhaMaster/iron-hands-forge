@@ -57,9 +57,9 @@ class MotionTests(unittest.TestCase):
         self.assertTrue((data/'assets/animations/motion-manifest.json').is_file())
     def test_missing_required_clip_is_not_complete(self):
         summary=prepare_motion(self.game_zip(missing=2),self.folder/'private');self.assertFalse(summary['completed']);self.assertEqual(summary['prepared'],3);self.assertEqual(len(summary['failures']),1)
-    def test_own_motion_bindings_cover_six_classes_and_four_private_sources(self):
+    def test_own_motion_bindings_cover_seven_classes_and_four_private_sources(self):
         bindings=load_motion_bindings();self.assertEqual(len(bindings['clips']),4)
-        self.assertEqual(set(bindings['classes']),{'PVE_PVP_'+name for name in ['SOLDIER','SNIPER','SUPPORT','RAIDER','TANK','BERSERK']})
+        self.assertEqual(set(bindings['classes']),{'PVE_PVP_'+name for name in ['SOLDIER','SNIPER','SUPPORT','RAIDER','TANK','BERSERK','ENGINEER']})
         self.assertEqual(bindings['bindingPolicy'],'shared-preview-validated');self.assertEqual(len(bindings['inheritedOnlyChannels']),83)
         for binding in bindings['classes'].values():self.assertEqual(set(binding['clipIds']),{'walk','run'})
     def test_motion_binding_traversal_and_wrong_gait_are_rejected(self):
