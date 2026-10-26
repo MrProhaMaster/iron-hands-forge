@@ -6,7 +6,7 @@ param(
   [string]$Python='python',
   [string]$Git='git',
   [string]$UpstreamCacheRoot='',
-  [string[]]$Assets=@('cc_sm_constructor_soldier','cc_sm_constructor_sniper','cc_sm_constructor_support','cc_sm_constructor_raider','cc_sm_constructor_tank','cc_sm_constructor_berserk'),
+  [string[]]$Assets=@('cc_sm_constructor_soldier','cc_sm_constructor_sniper','cc_sm_constructor_support','cc_sm_constructor_raider','cc_sm_constructor_tank','cc_sm_constructor_berserk','cc_sm_constructor_engineer'),
   [switch]$BuildOnly,
   [switch]$SkipModels,
   [switch]$SkipMotion
@@ -81,7 +81,37 @@ $builder=$builder.Replace('if ( boneObjectId == -1 )','if ( boneObjectId < 0 || 
 $builder=$builder.Replace('var transform = invMatrix.ToAssimp();','var transform = (Object.MatrixLT * invMatrix).ToAssimp();')
 $method='private void AddVertexSkinningData( Vertex vertex )'
 if(-not $builder.Contains($method)){throw 'Pinned upstream skin entry point changed.'}
-$builder=[regex]::Replace($builder,'(private void AddVertexSkinningData\( Vertex vertex \)\s*\{)','$1'+[Environment]::NewLine+'      if (vertex.HasWeight5 || vertex.HasWeight6 || vertex.HasWeight7 || vertex.HasWeight8) throw new InvalidDataException("WEIGHT8 is not supported by the verified local preparation.");',1)
+$skinMethod=@'
+private void AddVertexSkinningData( Vertex vertex )
+    {
+      // Verified WEIGHT4 has three influences; the fourth stored byte is auxiliary.
+      // WEIGHT8 Tube records use a distinct eight-byte layout. Preserve every
+      // verified influence, including the real fourth and fifth weights.
+      bool extended = vertex.HasWeight5 || vertex.HasWeight6 || vertex.HasWeight7 || vertex.HasWeight8;
+      if (extended) {
+        if (!(vertex.HasWeight1 && vertex.HasWeight2 && vertex.HasWeight3 && vertex.HasWeight4 && vertex.HasWeight5 && vertex.HasWeight6 && vertex.HasWeight7 && vertex.HasWeight8)) throw new InvalidDataException("Incomplete WEIGHT8 record");
+        float sum = vertex.Weight1+vertex.Weight2+vertex.Weight3+vertex.Weight4+vertex.Weight5+vertex.Weight6+vertex.Weight7+vertex.Weight8;
+        if (!float.IsFinite(sum) || Math.Abs(sum-1)>0.00001f || vertex.Weight8!=0) throw new InvalidDataException("Unsupported WEIGHT8 packing: verified bytes sum to255 and final byte is zero");
+        void AddChecked(short id,float weight) {
+          if (!float.IsFinite(weight) || weight<0 || weight>1 || (weight>0 && (id<0 || id>=Graph.objects.Count))) throw new InvalidDataException("Invalid WEIGHT8 source influence");
+          AddVertexWeight(id,weight);
+        }
+        AddChecked(vertex.Index1,vertex.Weight1); AddChecked(vertex.Index2,vertex.Weight2);
+        AddChecked(vertex.Index3,vertex.Weight3); AddChecked(vertex.Index4,vertex.Weight4);
+        AddChecked(vertex.Index5,vertex.Weight5); AddChecked(vertex.Index6,vertex.Weight6);
+        AddChecked(vertex.Index7,vertex.Weight7); AddChecked(vertex.Index8,vertex.Weight8);
+      } else {
+        if (vertex.HasWeight1) AddVertexWeight( vertex.Index1, vertex.Weight1 );
+        if (vertex.HasWeight2) AddVertexWeight( vertex.Index2, vertex.Weight2 );
+        if (vertex.HasWeight3) AddVertexWeight( vertex.Index3, vertex.Weight3 );
+      }
+    }
+
+    private void AddVertexWeight
+'@
+$skinPattern='private void AddVertexSkinningData\( Vertex vertex \)\s*\{[\s\S]*?private void AddVertexWeight'
+if([regex]::Matches($builder,$skinPattern).Count -ne 1){throw 'Pinned upstream skin helper shape changed.'}
+$builder=[regex]::Replace($builder,$skinPattern,$skinMethod,1)
 [IO.File]::WriteAllText((Join-Path $generated 'MeshBuilder.cs'),$builder)
 $context=[IO.File]::ReadAllText((Join-Path $indexProfile 'Meshes/SceneContext.cs')).TrimStart([char]0xFEFF).Replace('using HelixToolkit.SharpDX.Core;','')
 [IO.File]::WriteAllText((Join-Path $generated 'SceneContext.cs'),$context)
@@ -109,7 +139,7 @@ if(-not $SkipModels){
     $out=Join-Path $native $asset
     $metaFile=Join-Path $out ($asset+'.json')
     $ready=$false
-    if(Test-Path -LiteralPath $metaFile){try{$meta=Get-Content -Raw -LiteralPath $metaFile | ConvertFrom-Json;$ready=$meta.extractorVersion -eq '5.0-skin-safe-three-weight' -and (Test-Path -LiteralPath (Join-Path $out ($asset+'.glb')))}catch{$ready=$false}}
+    if(Test-Path -LiteralPath $metaFile){try{$meta=Get-Content -Raw -LiteralPath $metaFile | ConvertFrom-Json;$ready=$meta.extractorVersion -in @('5.0-skin-safe-three-weight','5.1-skin-safe-eight-weight') -and ($asset -ne 'cc_sm_constructor_engineer' -or $meta.extractorVersion -eq '5.1-skin-safe-eight-weight') -and (Test-Path -LiteralPath (Join-Path $out ($asset+'.glb')))}catch{$ready=$false}}
     if(-not $ready){Run-Checked $DotNet @((Join-Path $bin 'Sm2Extractor.dll'),'--game',$game,'--data-root',$data,'--out',$out,'--asset',$asset)}
     Run-Checked $Python @((Join-Path $appRoot 'tools/canonicalize_local.py'),'--data-root',$data,'--native-root',$native,'--output-root',$published,'--asset',$asset,'--game-build',$gameBuild)
   }
