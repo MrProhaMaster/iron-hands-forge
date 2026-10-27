@@ -153,7 +153,7 @@ try {
   const version = json(path.join(directory, 'package.json')).version;
   assert.equal(execFileSync(path.join(directory, 'runtime/node'), ['--version'], {encoding: 'utf8'}).trim(), 'v24.19.0');
   const payload = verifyBundle(path.join(directory, 'data'));
-  assert.equal(payload.classes, 7); assert.equal(payload.files, 22); assert.equal(payload.appVersion, version);
+  assert.equal(payload.classes, 7); assert.equal(payload.files, 30); assert.equal(payload.armorOptions, 1735); assert.equal(payload.appVersion, version);
   report.resources = payload;
   report.tests.push({name: 'actual-archive-integrity-posix-executable-modes-and-complete-bundle', passed: true});
 
