@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+const {loadBionicLibrary,MANIFEST:LEFT_BIONIC_MANIFEST}=createRequire(import.meta.url)('../shared/left-bionic.cjs');
 
 const APP_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const MODEL_ROOT='assets/characters/SM2-retail-constructors/source-v5';
@@ -79,9 +81,12 @@ function inspectData(dataRoot){
   const motion=readJSON(regularFile(root,'assets/animations/motion-manifest.json'));
   if(!Array.isArray(registry.classes)||!Array.isArray(source.assets))throw Error('Invalid armour catalogue or model manifest');
   const classes=registry.classes.filter(item=>item.available);
+  const bionics=loadBionicLibrary(root);
+  if(bionics.ready&&(bionics.classes.length!==classes.length||classes.some(c=>!bionics.classes.some(b=>b.classId===c.id&&b.asset===c.tpl))))throw Error('The left-bionic library must cover every supported class');
   const expected=Object.entries(bindings.classes).filter(([,binding])=>binding.status==='validated').map(([id])=>id).sort();
   if(!classes.length||new Set(classes.map(item=>item.id)).size!==classes.length||JSON.stringify(classes.map(item=>item.id).sort())!==JSON.stringify(expected))throw Error('The complete supported class catalogue is required');
   const files=new Set(['production/roster/armor-options.json','production/roster/armor-paints.json',MODEL_ROOT+'/manifest.json','assets/animations/motion-manifest.json']);
+  if(bionics.ready){files.add(LEFT_BIONIC_MANIFEST);for(const record of bionics.classes)files.add(safeRelative(record.relativePath))}
   const assets=[],summaries=[];
   for(const entry of classes){
     if(!/^cc_sm_constructor_[a-z0-9_]+$/.test(entry.tpl)||bindings.classes[entry.id].asset!==entry.tpl)throw Error('Invalid class/model binding: '+entry.id);
@@ -93,7 +98,7 @@ function inspectData(dataRoot){
     assertPortableJSON(gltf,entry.tpl+'.glb JSON chunk');
     if(!Array.isArray(metadata.meshes)||metadata.meshes.length!==gltf.meshes.length||!Array.isArray(metadata.objectMetadata)||!metadata.objectMetadata.length)throw Error('Incomplete source metadata: '+entry.tpl);
     if(metadata.asset!==entry.tpl||metadata.meshes.some((mesh,index)=>mesh.name!==gltf.meshes[index].name))throw Error('Source mesh identity mismatch: '+entry.tpl);
-    assets.push(asset);summaries.push({id:entry.id,asset:entry.tpl,slotCount:entry.slots.length,optionCount:entry.slots.reduce((sum,slot)=>sum+slot.options.length,0)});
+    assets.push(asset);summaries.push({id:entry.id,asset:entry.tpl,slotCount:entry.slots.length,optionCount:entry.slots.reduce((sum,slot)=>sum+slot.options.length,0)+(bionics.classes.some(b=>b.classId===entry.id)?1:0)});
     files.add(MODEL_ROOT+'/'+entry.tpl+'.glb');files.add(MODEL_ROOT+'/'+entry.tpl+'.json');
   }
   for(const clip of Object.values(bindings.clips)){

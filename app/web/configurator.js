@@ -74,7 +74,7 @@ function materialFor(original,meshName){
   else if(/bag|belt|leather/.test(lower)){role='leather';color='#372e28';metalness=0;roughness=.7}
   else if(/lenses|optic/.test(lower)){role='lenses';color=soldier().paint.lenses;metalness=.1;roughness=.2}
   else if(/glass/.test(lower)){role='glass';color='#18232c';opacity=.18;roughness=.12}
-  else if(/preview_steel|soldier_arm_r_02|soldier_hand_l_01/.test(lower)){role='metal';color=soldier().paint.metal;metalness=.85;roughness=.34}
+  else if(/preview_steel|forge_left_bionic|ch_cato_hand_lod|ch_tech_marine_mecharm|soldier_arm_r_02|soldier_hand_l_01/.test(lower)){role='metal';color=soldier().paint.metal;metalness=.85;roughness=.34}
   else if(/head_|skin|eye_/.test(lower)&&!/helmet/.test(lower)){role='skin';color='#a18a79';metalness=0;roughness=.7}
   const mat=new THREE.MeshStandardMaterial({name, color,metalness,roughness,transparent:opacity<1,opacity,depthWrite:opacity===1,side:THREE.FrontSide,vertexColors:false});
   mat.userData.role=role;if(role==='lenses'){mat.emissive.set(color);mat.emissiveIntensity=1.3}return mat;
@@ -186,10 +186,11 @@ function visibleBox(){const box=new THREE.Box3();model?.traverse(o=>{if(o.isMesh
 function fitView(){controls.target.set(0,1.35,0);camera.position.set(3.2,2.55,6.4);controls.update();dirty=true}
 function applySelection(){
   const visible=new Set(resolve(currentClass.baseMeshes||[]));
-  for(const slot of currentClass.slots){const option=selectedOption(slot);if(option)for(const mesh of optionMeshes(option))visible.add(mesh)}
+  const excluded=new Set();
+  for(const slot of currentClass.slots){const option=selectedOption(slot);if(option){for(const mesh of optionMeshes(option))visible.add(mesh);for(const id of option.forgeBionic?.excludeObjectIds||[])excluded.add(id)}}
   // Aliases may collide across material primitives. Visit every mesh so a
   // primitive cannot disappear merely because another one shares its name.
-  model.traverse(mesh=>{if(mesh.isMesh)mesh.visible=visible.has(mesh)});
+  model.traverse(mesh=>{if(mesh.isMesh)mesh.visible=visible.has(mesh)&&!excluded.has(mesh.userData.sourceObjectId)});
   model.updateMatrixWorld(true);dirty=true;
   const slot=currentSlot(),option=slot&&selectedOption(slot);$('selection').textContent=option?`${slotLabel(slot.id,slot.label)}: ${optionLabel(option)}`:'';
 }
@@ -253,6 +254,8 @@ if(QA){
   model.updateMatrixWorld(true);model.traverse(o=>{if(o.isSkinnedMesh)o.skeleton.update()});
   const inverseRoot=model.matrixWorld.clone().invert(),expected=new Set(resolve(currentClass.baseMeshes||[]).map(o=>o.userData.sourceName));
   for(const slot of currentClass.slots){const option=selectedOption(slot);if(option)for(const name of option.resolvedMeshes||option.meshes||[])expected.add(name)}
+  const excludedIds=new Set(currentClass.slots.flatMap(slot=>selectedOption(slot)?.forgeBionic?.excludeObjectIds||[]));
+  model.traverse(mesh=>{if(mesh.isMesh&&excludedIds.has(mesh.userData.sourceObjectId))expected.delete(mesh.userData.sourceName||mesh.name)});
   const entries=[],visibleSources=new Set(),visibleIds=new Set(),skipped=new Set();let total=0;
   model.traverse(mesh=>{if(!mesh.isMesh)return;const source=mesh.userData.sourceName||mesh.name;if(!mesh.visible){if(expected.has(source)&&technical(mesh))skipped.add(source);return}visibleSources.add(source);visibleIds.add(mesh.userData.sourceObjectId);
    const bounds=new THREE.Box3(),v=new THREE.Vector3(),count=mesh.geometry.getAttribute('position').count;
@@ -269,7 +272,7 @@ const motionState=()=>({gait:$('motion-gait').value,stance:$('walk-style').value
 const changeMotion=async()=>{resetWalk();soldier().motion=motionState();persist();await setupWalk()};
 $('walk-style').onchange=changeMotion;$('motion-gait').onchange=changeMotion;
 $('walk-speed').oninput=()=>{const speed=Number($('walk-speed').value);$('walk-speed-label').value=speed.toFixed(1).replace('.0','')+'×';if(mixer)mixer.timeScale=speed;soldier().motion=motionState();persist()};
-$('focus').onclick=()=>{const option=selectedOption(currentSlot());const meshes=option?optionMeshes(option):[];if(!meshes.length)return;const box=new THREE.Box3();for(const mesh of meshes)box.union(new THREE.Box3().setFromObject(mesh));const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3()),distance=Math.max(size.x,size.y,size.z)*2.4;controls.target.copy(center);camera.position.copy(center).add(new THREE.Vector3(distance*.3,distance*.15,distance));controls.update();dirty=true};
+$('focus').onclick=()=>{const option=selectedOption(currentSlot());const meshes=option?optionMeshes(option):[];if(!meshes.length)return;model.updateMatrixWorld(true);const box=new THREE.Box3();for(const mesh of meshes)box.union(new THREE.Box3().setFromObject(mesh,true));const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3()),distance=Math.max(size.x,size.y,size.z)*2.4;controls.target.copy(center);camera.position.copy(center).add(new THREE.Vector3(distance*.3,distance*.15,distance));controls.update();dirty=true};
 for(const [id,key]of [['armor-color','armor'],['metal-color','metal'],['lens-color','lenses']])$(id).oninput=()=>{soldier().paint[key]=$(id).value;updatePaint();persist()};
 $('refresh-catalog').onclick=async()=>{await refreshCatalog();await chooseClass(soldier().classId)};
 $('save-roster').onclick=async()=>{try{const response=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schema:'medusa-selected-roster-v2',soldiers})});if(!response.ok)throw Error('Could not save the squad');setStatus('Squad saved. The build code is ready to transfer into Blender.')}catch(e){setStatus(e.message)}};

@@ -101,13 +101,14 @@ async function stop(record) {
   }
 }
 
-async function runBrowser(base, env) {
-  const script = fileURLToPath(new URL('./offline-browser-qa.mjs', import.meta.url));
-  const browserOut = path.join(out, 'browser');
+async function runBrowser(base, env, bionic = false) {
+  const script = fileURLToPath(new URL(bionic ? './left-bionic-browser-qa.mjs' : './offline-browser-qa.mjs', import.meta.url));
+  const label = bionic ? 'left-bionic-browser' : 'browser';
+  const browserOut = path.join(out, label);
   const child = spawn(process.execPath, [script, '--url', base, '--out', browserOut], {
     env, cwd: out, detached: true, stdio: ['ignore', 'pipe', 'pipe']
   });
-  const record = {child, label: 'offline-browser', stdout: '', stderr: '', ended: false, processGroup: true};
+  const record = {child, label, stdout: '', stderr: '', ended: false, processGroup: true};
   processes.add(record);
   child.stdout.on('data', chunk => { record.stdout = (record.stdout + chunk).slice(-65536); process.stdout.write(chunk); });
   child.stderr.on('data', chunk => { record.stderr = (record.stderr + chunk).slice(-65536); process.stderr.write(chunk); });
@@ -116,11 +117,16 @@ async function runBrowser(base, env) {
     child.once('close', (code, signal) => { record.ended = true; record.result = {code, signal}; resolve(record.result); });
   });
   const result = await waitExit(record, 25 * 60 * 1000);
-  assert.equal(result.code, 0, 'Offline browser acceptance failed: ' + record.stderr);
+  assert.equal(result.code, 0, label + ' acceptance failed: ' + record.stderr);
   const resultReport = json(path.join(browserOut, 'report.json'));
   assert.equal(resultReport.passed, true); assert.equal(resultReport.classes.length, 7);
-  assert.deepEqual(resultReport.blockedRequests, []);
-  report.browser = {passed: true, report: path.join(browserOut, 'report.json'), classes: resultReport.classes.length, build: resultReport.build};
+  if (bionic) {
+    assert.deepEqual(resultReport.browserErrors, []); assert.deepEqual(resultReport.httpFailures, []);
+    report.leftBionics = {passed: true, report: path.join(browserOut, 'report.json'), classes: resultReport.classes.length};
+  } else {
+    assert.deepEqual(resultReport.blockedRequests, []);
+    report.browser = {passed: true, report: path.join(browserOut, 'report.json'), classes: resultReport.classes.length, build: resultReport.build};
+  }
 }
 
 try {
@@ -211,6 +217,8 @@ try {
   if (options.browser) {
     await runBrowser(relocatedReady.url, env);
     report.tests.push({name: 'offline-chromium-seven-classes-edit-paint-share-export-and-resource-reset', passed: true});
+    await runBrowser(relocatedReady.url, env, true);
+    report.tests.push({name: 'seven-left-bionic-arms-native-compatibility-motion-save-share-and-glb-export', passed: true});
   }
   await stop(relocatedOwner);
 

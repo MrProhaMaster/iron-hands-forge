@@ -1,14 +1,16 @@
 # Linux x64
 
-Download `IronHandsForge-0.3.0-linux-x64.tar.gz` from the Linux release, extract the complete archive, and run `./IronHandsForge` from its folder. `./IronHandsForge.sh` is an equivalent entrypoint. A terminal stays open while the local application is running. Stop it with Ctrl+C. If your file manager does not run executables, open a terminal in the extracted folder.
+Download a published `IronHandsForge-VERSION-linux-x64.tar.gz` from the Linux release, extract the complete archive, and run `./IronHandsForge` from its folder. Replace `VERSION` below with the version you downloaded. `./IronHandsForge.sh` is an equivalent entrypoint. A terminal stays open while the local application is running. Stop it with Ctrl+C. If your file manager does not run executables, open a terminal in the extracted folder.
 
 ```sh
-tar -xzf IronHandsForge-0.3.0-linux-x64.tar.gz
-cd IronHandsForge-0.3.0-linux-x64
+tar -xzf IronHandsForge-VERSION-linux-x64.tar.gz
+cd IronHandsForge-VERSION-linux-x64
 ./IronHandsForge
 ```
 
 The archive includes a native Linux x64 Node.js runtime, Three.js, and the complete seven-class armour library. No Wine, .NET, system Node.js, Python, installed game, or additional resource download is needed to customise armour, use the shared motion previews, exchange IHF1 codes, or prepare GLB files. A desktop browser is required. The application listens on `127.0.0.1`; it does not expose the server on the network. This package targets standard glibc-based x86-64 desktop Linux, rather than Alpine/musl or ARM.
+
+The v0.4.0 application and shared packaging pipeline support **Left gauntlet → Bionic left arm** for all seven classes. The choice is saved in IHF1/JSON recipes and retained in GLB and Blender transfers. A new Linux archive requires its own native Linux build and release checks; a successful Windows package does not establish Linux launch validation. See [left bionic arms](left-bionics.md) for the shared workflow.
 
 The launcher opens your default browser with `xdg-open` or `gio open`. If neither command is available, open the printed `http://127.0.0.1:PORT/` address manually. `--no-browser` leaves browser opening to you:
 
@@ -53,7 +55,7 @@ node scripts/vendor-three.mjs
 node scripts/build-linux.mjs \
   --data-root '/path/to/verified/data' \
   --node-binary '/path/to/node-v24.19.0-linux-x64/bin/node' \
-  --out '/path/to/dist/IronHandsForge-0.3.0-linux-x64'
+  --out '/path/to/dist/IronHandsForge-0.4.0-linux-x64'
 ```
 
 The builder verifies ELF architecture, exact Node version, resource inventory and checksums, and copies only runtime resources. It writes the distribution folder, `.tar.gz`, and `.tar.gz.sha256`. Entrypoints and `runtime/node` have mode 0755; data and code files use 0644. Windows .NET binaries, private configuration, user state, caches, raw game archives and extractor binaries are excluded. Choose a fresh output folder. The Windows ZIP and Linux archive are separate release assets; neither runs a background installer or downloads resources on first launch.

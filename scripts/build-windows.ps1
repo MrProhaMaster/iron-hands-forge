@@ -32,7 +32,13 @@ function Resolve-Tool([string]$ExplicitPath, [string[]]$Candidates, [string]$Com
 function Copy-DirectoryContents([string]$Source, [string]$Destination) {
     [void][IO.Directory]::CreateDirectory($Destination)
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination $Destination -Recurse -Force
+        if ($item.PSIsContainer) {
+            if ($item.Name -eq '__pycache__') { continue }
+            Copy-DirectoryContents $item.FullName (Join-Path $Destination $item.Name)
+        }
+        elseif ($item.Extension -notin @('.pyc', '.pyo')) {
+            Copy-Item -LiteralPath $item.FullName -Destination $Destination -Force
+        }
     }
 }
 

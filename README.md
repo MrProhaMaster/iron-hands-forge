@@ -10,6 +10,8 @@
 
 **Select and share.** Supported classes are Tactical, Assault, Vanguard, Bulwark, Heavy, Sniper, and Techmarine. Choose a character, class, armour parts, and colours. All seven classes support four verified shared game walk/run clips: unarmed and rifle-grip poses, at 0.5–2× speed. These are compatible previews on the original skeletons; the full game controller, IK, and secondary physics are not reproduced. Fixed facial channels retain the selected head's original proportions. Materials currently provide preview colours; game PBR materials and emblems need separate work.
 
+**Bionic left arm — v0.4.0.** Open **Left gauntlet** and choose **Bionic left arm**. Each of the seven classes uses its own mirrored native arm, bound to that class's existing left-side skeleton. The choice is saved with the marine, IHF1 code and JSON recipe, and carried into GLB and Blender exports. Packaged builds include the seven-class library for offline use through the shared Windows/Linux resource pipeline. See [left bionic arms and local regeneration](docs/left-bionics.md).
+
 Select **Share build** to open **Transfer build**:
 
 1. Generate **Soldier code** or **Squad code**, then select **Copy**.
@@ -59,6 +61,7 @@ The output is `dist/IronHandsForge-win-x64/`. The builder selects and copies onl
 - Techmarine: 569 source meshes / 3,774,248 vertices; both servo-arm variants checked across four loops. Three IHF1 code-to-Blender save/reopen checks passed, including 2x motion and a deliberate fifth-bone stress test. See [Techmarine support](docs/techmarine.md).
 - Windows launcher: 7 groups covering startup, data paths, instance reuse, and shutdown of its own server.
 - Motion: 24 class/clip combinations in default armour, plus 24 bare-headed combinations with preserved facial binds. Every frame, skin weights, limb lengths, and loop continuity were checked.
+- Left bionics: seven native-left bindings checked through all four existing preview clips, covering 952 source frames. Original body matrices, mirrored geometry attributes and numerical weights are preserved.
 
 Prepared armour models, catalogues, animation clips, and runtimes are included in the downloadable distribution through Releases, rather than Git source history. The original raw game archives, extractor binaries, personal rosters, and machine paths are not distributed. `state/`, `.build/`, `data/`, `runtime/`, `dist/`, and `forge.config.json` remain Git-ignored. Do not force-add private files or generated payloads to Git.
 

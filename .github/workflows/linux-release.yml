@@ -15,12 +15,14 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
-      FORGE_RELEASE_VERSION: '0.3.0'
+      FORGE_RELEASE_VERSION: '0.4.0'
+      FORGE_SOURCE_VERSION: '0.3.0'
       FORGE_NODE_VERSION: '24.19.0'
       FORGE_NODE_ARCHIVE_SHA256: 14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647
       FORGE_WINDOWS_SHA256: b6de2aeb3e0f1386954808a86b3d5d4ac4be9cb16eb87da314d07b68dc47394f
       FORGE_PYTHON: python3
       FORGE_NODE: node
+      FORGE_REQUIRE_BUNDLED: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
@@ -66,19 +68,19 @@ jobs:
           npm test 2>&1 | tee "$RUNNER_TEMP/forge-node-tests.log"
           python3 -m unittest discover -s tests -p '*_test.py' 2>&1 | tee "$RUNNER_TEMP/forge-python-tests.log"
 
-      - name: Fetch verified Windows release and extract only the included armour data
+      - name: Fetch pinned v0.3.0 source resources independently of the new Windows release
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/forge-windows-source"
-          name="IronHandsForge-${FORGE_RELEASE_VERSION}-win-x64.zip"
-          url="https://github.com/MrProhaMaster/iron-hands-forge/releases/download/v${FORGE_RELEASE_VERSION}/$name"
+          name="IronHandsForge-${FORGE_SOURCE_VERSION}-win-x64.zip"
+          url="https://github.com/MrProhaMaster/iron-hands-forge/releases/download/v${FORGE_SOURCE_VERSION}/$name"
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/forge-windows-source/$name" "$url"
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/forge-windows-source/$name.sha256" "$url.sha256"
           python3 - <<'PY'
           import hashlib, json, os, pathlib, shutil, zipfile
           temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
-          version = os.environ['FORGE_RELEASE_VERSION']
+          version = os.environ['FORGE_SOURCE_VERSION']
           filename = f'IronHandsForge-{version}-win-x64.zip'
           archive = temporary / 'forge-windows-source' / filename
           expected = os.environ['FORGE_WINDOWS_SHA256'].lower()
@@ -103,23 +105,72 @@ jobs:
                   count += 1
           manifest = json.loads((destination / 'bundle-manifest.json').read_text())
           assert count == 23 and manifest['counts']['files'] == 22 and manifest['counts']['classes'] == 7
-          provenance = {'windowsRelease': f'https://github.com/MrProhaMaster/iron-hands-forge/releases/tag/v{version}', 'windowsArchiveSHA256': actual, 'nodeArchiveSHA256': os.environ['FORGE_NODE_ARCHIVE_SHA256'], 'filesExtracted': count, 'modelsDownloadedDuringApplicationLaunch': False}
+          provenance = {'sourceWindowsRelease': f'https://github.com/MrProhaMaster/iron-hands-forge/releases/tag/v{version}', 'targetReleaseVersion': os.environ['FORGE_RELEASE_VERSION'], 'windowsArchiveSHA256': actual, 'nodeArchiveSHA256': os.environ['FORGE_NODE_ARCHIVE_SHA256'], 'sourceFilesExtracted': count, 'sourcePayloadFiles': manifest['counts']['files'], 'modelsDownloadedDuringApplicationLaunch': False}
           (temporary / 'forge-linux-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
           archive.unlink()
           PY
           node scripts/bundle-resources.mjs --verify "$RUNNER_TEMP/forge-included-data"
 
+      - name: Generate the seven left bionic arms on Ubuntu and verify the 30-file runtime library
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/prepare_left_bionics.py --data-root "$RUNNER_TEMP/forge-included-data" | tee "$RUNNER_TEMP/forge-prepare-left-bionics.log"
+          node scripts/bundle-resources.mjs --data-root "$RUNNER_TEMP/forge-included-data" --out "$RUNNER_TEMP/forge-generated-data"
+          node scripts/bundle-resources.mjs --verify "$RUNNER_TEMP/forge-generated-data"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
+          original = json.loads((temporary / 'forge-included-data/bundle-manifest.json').read_text())
+          generated = json.loads((temporary / 'forge-generated-data/bundle-manifest.json').read_text())
+          assert original['counts']['files'] == 22
+          assert generated['appVersion'] == os.environ['FORGE_RELEASE_VERSION']
+          assert generated['counts']['classes'] == 7 and generated['counts']['files'] == 30
+          payload = {entry['path']: entry for entry in generated['files']}
+          for entry in original['files']:
+              assert payload[entry['path']] == entry, 'An original verified source resource changed: ' + entry['path']
+          directory = temporary / 'forge-generated-data/assets/characters/SM2-left-bionic/native-v1'
+          manifest_file = directory / 'manifest.json'
+          left = json.loads(manifest_file.read_text())
+          assert left['schema'] == 'iron-hands-forge-left-bionic-library' and left['version'] == 1
+          assert len(left['classes']) == 7 and len({row['classId'] for row in left['classes']}) == 7
+          for row in left['classes']:
+              model = temporary / 'forge-generated-data' / row['relativePath']
+              assert model.stat().st_size == row['bytes']
+              with model.open('rb') as stream:
+                  assert hashlib.file_digest(stream, 'sha256').hexdigest() == row['sha256']
+              assert row['helperNodes'] == (0 if row['classId'] == 'PVE_PVP_TANK' else 18)
+              assert row['weightedHelperJoints'] == (0 if row['classId'] == 'PVE_PVP_TANK' else 17)
+          provenance_file = temporary / 'forge-linux-provenance.json'
+          provenance = json.loads(provenance_file.read_text())
+          provenance.update(leftBionicsGeneratedNatively=True, leftBionicClasses=7, targetPayloadFiles=30,
+                            leftManifestSHA256=hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
+                            sourceExtractionRemovedAfterVerifiedCopy=True)
+          provenance_file.write_text(json.dumps(provenance, indent=2) + '\n')
+          source_directory = temporary / 'forge-included-data'
+          preparation = source_directory / 'assets/characters/SM2-left-bionic/native-v1/provenance/preparation-report.json'
+          shutil.copy2(preparation, temporary / 'forge-left-bionic-preparation-report.json')
+          # All 22 original files were verified in the generated copy above.
+          # Remove only this job's now-redundant extraction to save runner disk.
+          assert not source_directory.is_symlink()
+          resolved_source = source_directory.resolve()
+          assert resolved_source.parent == temporary.resolve() and resolved_source.name == 'forge-included-data'
+          assert (temporary / 'forge-generated-data').resolve() != resolved_source
+          shutil.rmtree(resolved_source)
+          PY
+
       - name: Build Linux tar.gz using the verified native runtime and included data
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/build-linux.mjs --data-root "$RUNNER_TEMP/forge-included-data" --out "$GITHUB_WORKSPACE/dist/IronHandsForge-${FORGE_RELEASE_VERSION}-linux-x64" --node-binary "$RUNNER_TEMP/forge-node/bin/node" | tee "$RUNNER_TEMP/forge-build-linux.log"
+          node scripts/build-linux.mjs --data-root "$RUNNER_TEMP/forge-generated-data" --out "$GITHUB_WORKSPACE/dist/IronHandsForge-${FORGE_RELEASE_VERSION}-linux-x64" --node-binary "$RUNNER_TEMP/forge-node/bin/node" | tee "$RUNNER_TEMP/forge-build-linux.log"
           python3 - <<'PY'
           import json, os, pathlib
-          source = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'forge-included-data/bundle-manifest.json').read_text())
+          source = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'forge-generated-data/bundle-manifest.json').read_text())
           output = pathlib.Path('dist') / f"IronHandsForge-{os.environ['FORGE_RELEASE_VERSION']}-linux-x64" / 'data/bundle-manifest.json'
           packaged = json.loads(output.read_text())
-          assert source['files'] == packaged['files'], 'Linux must include the same 22 armour payload files as the verified Windows release'
+          assert packaged['counts']['files'] == 30 and packaged['counts']['classes'] == 7
+          assert source['files'] == packaged['files'], 'Linux must preserve the 22 verified source files and eight generated left-bionic files'
           PY
 
       - name: Use the runner Chrome for offline browser acceptance
@@ -132,7 +183,7 @@ jobs:
           "$browser" --version
           echo "FORGE_BROWSER=$browser" >> "$GITHUB_ENV"
 
-      - name: Verify the extracted Linux release, lifecycle, relocation and offline customization
+      - name: Verify the actual Linux archive, lifecycle, offline customization and left bionic arms
         shell: bash
         run: |
           set -euo pipefail
@@ -158,22 +209,24 @@ jobs:
                       shutil.copy2(source, artifact / name)
           qa = artifact / 'qa'
           qa.mkdir(exist_ok=True)
-          for source_name, target_name in [('forge-linux-provenance.json', 'provenance.json'), ('forge-node-tests.log', 'node-tests.log'), ('forge-python-tests.log', 'python-tests.log'), ('forge-build-linux.log', 'build-linux.log')]:
+          for source_name, target_name in [('forge-linux-provenance.json', 'provenance.json'), ('forge-node-tests.log', 'node-tests.log'), ('forge-python-tests.log', 'python-tests.log'), ('forge-prepare-left-bionics.log', 'prepare-left-bionics.log'), ('forge-build-linux.log', 'build-linux.log')]:
               source = temporary / source_name
               if source.is_file(): shutil.copy2(source, qa / target_name)
           source = temporary / 'forge-linux-qa'
-          for pattern in ['report.json', 'lifecycle/*.log', 'browser/report.json', 'browser/*.png']:
+          for pattern in ['report.json', 'lifecycle/*.log', 'browser/report.json', 'browser/*.png', 'left-bionic-browser/report.json', 'left-bionic-browser/*.png']:
               for file in source.glob(pattern):
                   target = qa / file.relative_to(source)
                   target.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(file, target)
+          preparation = temporary / 'forge-left-bionic-preparation-report.json'
+          if preparation.is_file(): shutil.copy2(preparation, qa / 'left-bionic-preparation-report.json')
           PY
 
       - name: Upload Linux distribution and QA evidence for review
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified official tag
         with:
-          name: IronHandsForge-0.3.0-linux-x64-ci
+          name: IronHandsForge-0.4.0-linux-x64-ci
           path: ${{ runner.temp }}/forge-linux-ci-artifact/
           include-hidden-files: false
           compression-level: 0

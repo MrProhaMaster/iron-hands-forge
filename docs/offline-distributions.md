@@ -2,7 +2,7 @@
 
 The release archive contains everything required to customise the seven supported armour classes, preview shared walk/run clips, exchange IHF1 codes, and prepare GLB files. Extract the complete archive and start the launcher. An installed game, SDK, Python, and Internet connection are not needed for those features.
 
-The included `data/` library contains 1,728 catalogue options, seven validated constructor models and their metadata, the paint catalogue, and four shared movement clips. These are the same preview materials and motion policies used by Forge 0.2.0. This packaging update does not claim to reconstruct game PBR shaders or secondary physics.
+The included `data/` library contains the game catalogue, seven validated constructor models and their metadata, the paint catalogue, four shared movement clips, and seven additional left-bionic arm assets. Forge v0.4.0 offers **Left gauntlet → Bionic left arm** for all seven classes. The selected arm is retained in saved builds and GLB/Blender transfers. Materials remain preview colours; game PBR shaders and secondary physics are separate work.
 
 ## Resource selection
 

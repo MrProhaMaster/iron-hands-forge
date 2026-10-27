@@ -64,7 +64,7 @@ function library(root, {bundle = false} = {}) {
 }
 
 function serverFixture(base) {
-  for (const relative of ['app/server.cjs', 'shared/resource-library.cjs', 'shared/motion-bindings.json', 'package.json']) {
+  for (const relative of ['app/server.cjs', 'shared/resource-library.cjs', 'shared/left-bionic.cjs', 'shared/motion-bindings.json', 'package.json']) {
     const target = path.join(base, relative);
     fs.mkdirSync(path.dirname(target), {recursive: true});
     fs.copyFileSync(path.join(project, relative), target);

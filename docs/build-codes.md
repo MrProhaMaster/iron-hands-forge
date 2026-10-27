@@ -45,6 +45,8 @@ Omitting `motion` exports a static rigged model. `gait` is `walk` or `run`; `sta
 
 A complete Tactical example is in [examples/tactical-build.json](../examples/tactical-build.json). It contains identifiers and colours only.
 
+In Forge v0.4.0, **Left gauntlet → Bionic left arm** uses `selection.LEFT_GAUNTLET = "forge_left_bionic_v1"`. It travels through the same IHF1, JSON and GLB/Blender workflow as the other armour choices. The receiving data library must include the [seven-class left-bionic resources](left-bionics.md); an older catalogue reports the option as unavailable.
+
 ## Import into Blender
 
 The web app's GLB output can be imported using Blender's glTF importer. For a recipe-driven import:

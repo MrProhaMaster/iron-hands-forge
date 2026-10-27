@@ -38,6 +38,14 @@ Main outputs:
 - two walk clips and two run clips under `assets/animations/`;
 - private upstream sources, caches, and provenance under `tools/sm2-extractor/`.
 
+**Left bionic arms (v0.4.0).** After preparing the seven V5 constructors, run the independent additional-resource generator:
+
+```powershell
+& 'E:/Tools/Python/python.exe' ./tools/prepare_left_bionics.py --data-root 'E:/ForgeData'
+```
+
+It creates `assets/characters/SM2-left-bionic/native-v1/manifest.json` and seven class-specific GLB files directly from that data folder's constructors and catalogue. It does not need prebuilt review models or change the originals. See [left bionic preparation](left-bionics.md#regenerate-from-local-v5-data) for staging and replacement options. The downloadable releases already include these additional resources.
+
 All seven supported classes use the four verified shared preview clips described by `shared/motion-bindings.json`. The original game animation files remain unchanged. The preview preserves 83 listed fixed facial controls in the target bind pose, so heads retain their proportions while inheriting animated HEAD movement. This does not reproduce the full native game controller, foot IK, or secondary physics.
 
 Each generated model is checked against source weights for every vertex, vertex-to-triangle assignments, and skeleton matrices. Original UVs are restored after protection against incorrect vertex welding. Existing models are not silently replaced: use a new results folder for another source version.
