@@ -22,9 +22,11 @@ function cleanup(folder) {
 }
 const eventually = async predicate => {for (let i = 0; i < 100; i++) {if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 30));} assert.fail('Timed out waiting for launcher state');};
 async function freePort() {const server = net.createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening'); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port;}
-function launch(args, folder) {
-  const child = spawn(process.execPath, [LAUNCHER, ...args], {cwd: os.tmpdir(), windowsHide: true,
-    env: {...process.env, XDG_STATE_HOME: path.join(folder, 'xdg state'), XDG_CACHE_HOME: path.join(folder, 'xdg cache')}, stdio: ['ignore', 'pipe', 'pipe']});
+function launch(args, folder, extraEnv = {}, observeInternalTemp = false) {
+  const observe = 'const {run,parseOptions}=require(' + JSON.stringify(LAUNCHER) + ');run(parseOptions(process.argv.slice(1)),{stdout:line=>{const ready=JSON.parse(line);ready.internalTemp={TEMP:process.env.TEMP,TMP:process.env.TMP,TMPDIR:process.env.TMPDIR};console.log(JSON.stringify(ready))}}).then(code=>process.exitCode=code).catch(error=>{console.error(error);process.exitCode=1});';
+  const command = observeInternalTemp ? ['-e', observe, '--', ...args] : [LAUNCHER, ...args];
+  const child = spawn(process.execPath, command, {cwd: os.tmpdir(), windowsHide: true,
+    env: {...process.env, XDG_STATE_HOME: path.join(folder, 'xdg state'), XDG_CACHE_HOME: path.join(folder, 'xdg cache'), ...extraEnv}, stdio: ['ignore', 'pipe', 'pipe']});
   let output = '', errors = '';
   child.stdout.on('data', chunk => {output += chunk;}); child.stderr.on('data', chunk => {errors += chunk;});
   const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({code, signal})));
@@ -139,4 +141,31 @@ test('Linux shutdown signals close the owned server without stopping a reused in
       assert.equal(await getHealth(port), null);
     } finally {if (instance) await stop(instance); cleanup(folder);}
   }
+});
+
+test('real Linux browser launch keeps the original temp environment while the server uses its private cache', {skip: process.platform !== 'linux'}, async () => {
+  const folder = temporary(), bin = path.join(folder, 'bin'), userTemp = path.join(folder, 'user-tmp');
+  const report = path.join(folder, 'browser-environment.json'), script = path.join(folder, 'capture-browser-env.cjs');
+  const longCache = path.join(folder, 'intentionally-long-cache-parent-for-native-browser-socket-regression-'.repeat(3));
+  const port = await freePort(); let instance;
+  const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  try {
+    fs.mkdirSync(bin); fs.mkdirSync(userTemp);
+    fs.writeFileSync(script, "const fs=require('node:fs');fs.writeFileSync(process.env.FORGE_BROWSER_ENV_REPORT,JSON.stringify({TEMP:process.env.TEMP,TMP:process.env.TMP,TMPDIR:process.env.TMPDIR,url:process.argv[2]}));\n");
+    fs.writeFileSync(path.join(bin, 'xdg-open'), '#!/bin/sh\nexec ' + shellQuote(process.execPath) + ' ' + shellQuote(script) + ' "$@"\n', {mode: 0o755});
+    instance = launch(['--port', String(port), '--data-root', path.join(folder, 'empty explicit data')], folder, {
+      XDG_CACHE_HOME: longCache, TEMP: userTemp, TMP: userTemp, TMPDIR: userTemp,
+      PATH: bin + path.delimiter + process.env.PATH, FORGE_BROWSER_ENV_REPORT: report
+    }, true);
+    await eventually(() => instance.ready() || instance.child.exitCode !== null);
+    assert.ok(instance.ready(), instance.errors());
+    let browser;
+    await eventually(() => {try {browser = JSON.parse(fs.readFileSync(report, 'utf8')); return true;} catch {return false;}});
+    const ready = instance.ready(), privateTemp = path.join(ready.cacheRoot, 'tmp');
+    assert.ok(Buffer.byteLength(path.join(privateTemp, 'com.google.Chrome.XXXXXX', 'SingletonSocket')) > 108, 'The regression fixture must exceed the Linux socket limit');
+    assert.deepEqual(browser, {TEMP: userTemp, TMP: userTemp, TMPDIR: userTemp, url: ready.url});
+    assert.deepEqual(ready.internalTemp, {TEMP: privateTemp, TMP: privateTemp, TMPDIR: privateTemp});
+    assert.ok(fs.statSync(privateTemp).isDirectory());
+    assert.equal((await getHealth(port)).appId, 'iron-hands-forge');
+  } finally {if (instance) await stop(instance); cleanup(folder);}
 });

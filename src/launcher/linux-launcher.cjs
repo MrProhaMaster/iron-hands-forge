@@ -100,10 +100,10 @@ async function acquireStartupLock(appRoot, {signal, timeout = 25000} = {}) {
   }
 }
 
-async function openBrowser(url) {
+async function openBrowser(url, env) {
   for (const [command, args] of [['xdg-open', [url]], ['gio', ['open', url]]]) {
     const launched = await new Promise(resolve => {
-      const child = spawn(command, args, {stdio: 'ignore', detached: true});
+      const child = spawn(command, args, {env, stdio: 'ignore', detached: true});
       child.once('error', () => resolve(false));
       child.once('spawn', () => {child.unref(); resolve(true);});
     });
@@ -129,6 +129,7 @@ async function closeOwned(server) {
 }
 
 async function run(options, {appRoot = APP_ROOT, env = process.env, stdout = console.log} = {}) {
+  const browserEnv = {...env};
   const paths = resolvePaths(options, {appRoot, env});
   appRoot = paths.appRoot;
   const {stateRoot, cacheRoot} = paths;
@@ -165,7 +166,7 @@ async function run(options, {appRoot = APP_ROOT, env = process.env, stdout = con
       stdout(JSON.stringify({appId: APP_ID, event: 'ready', version, url, port, dataRoot, stateRoot, cacheRoot,
         resourcesReady: health.resourcesReady, dataSource: health.dataSource, reused}));
       await release(); release = null;
-      if (!options.noBrowser) await openBrowser(url);
+      if (!options.noBrowser) await openBrowser(url, browserEnv);
     };
     for (const port of ports) {
       abort.signal.throwIfAborted();

@@ -22,8 +22,13 @@ assert.ok(path.isAbsolute(options['--out']),'Use an absolute QA output directory
 const out=path.resolve(options['--out']);
 if(process.platform==='win32')assert.match(out,/^E:[\\/]/i,'QA artifacts and the clean browser profile must stay on E:');
 fs.mkdirSync(out,{recursive:true});
-const profile=fs.mkdtempSync(path.join(out,'browser-profile-'));
-const temp=path.join(profile,'temp');fs.mkdirSync(temp,{recursive:true});
+// Chromium's POSIX SingletonSocket lives under TMPDIR and is limited by
+// sockaddr_un.sun_path. Keep Linux browser state independent of long QA paths.
+const shortBrowserRoot=process.platform==='linux'?fs.mkdtempSync('/tmp/ihf-'):null;
+const profile=shortBrowserRoot?path.join(shortBrowserRoot,'p'):fs.mkdtempSync(path.join(out,'browser-profile-'));
+const temp=shortBrowserRoot?path.join(shortBrowserRoot,'t'):path.join(profile,'temp');
+fs.mkdirSync(profile,{recursive:true});fs.mkdirSync(temp,{recursive:true});
+if(process.platform==='linux')assert.ok(Buffer.byteLength(path.join(temp,'com.google.Chrome.XXXXXX','SingletonSocket'))<100,'Chrome temporary socket path must fit sockaddr_un');
 process.env.TEMP=temp;process.env.TMP=temp;process.env.TMPDIR=temp;
 const require=createRequire(import.meta.url);
 if(process.platform!=='win32')assert.ok(process.env.FORGE_PLAYWRIGHT&&process.env.FORGE_BROWSER,'Set FORGE_PLAYWRIGHT and FORGE_BROWSER for Linux acceptance');
@@ -41,7 +46,7 @@ const expectedClasses=new Map([
 const requestedClassIds=process.env.FORGE_QA_CLASSES?.split(',').map(value=>value.trim()).filter(Boolean);
 if(requestedClassIds)for(const id of requestedClassIds)assert.ok(expectedClasses.has(id),'Unknown scoped QA class: '+id);
 const report={schema:'iron-hands-forge-left-bionic-browser-qa-v1',passed:false,base:base.origin,
- startedAt:new Date().toISOString(),profile,temp,executable:executable??'Playwright bundled Chromium',
+ startedAt:new Date().toISOString(),profile,temp,shortBrowserRoot,executable:executable??'Playwright bundled Chromium',
  initialRosterOverride:'A page-init fetch hook supplies only /api/roster for one initial class. Native asset requests use unmodified fetch with no Playwright request interception. Explicit Save squad is exercised in the designated QA server state.',
  requestedClassIds:requestedClassIds??[...expectedClasses.keys()],
  classes:[],browserErrors:[],pageErrors:[],consoleErrors:[],httpFailures:[],requestFailures:[],completedByteStreamCancellations:[],cancelledOnPageClose:[],blockedRequests:[],externalRequests:[],networkLifecycle:[]};
