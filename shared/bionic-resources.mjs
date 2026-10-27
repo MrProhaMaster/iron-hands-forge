@@ -6,6 +6,14 @@ import {graftBionicModel} from './bionic-graft.mjs';
 const {loadBionicClass}=createRequire(import.meta.url)('./left-bionic.cjs');
 const plans=new Map();
 const statKey=file=>{const s=fs.statSync(file);return s.size+':'+s.mtimeMs};
+function sourceFile(base,relative){
+ base=path.resolve(base);const file=path.resolve(base,relative);
+ const within=(root,value)=>value===root||value.startsWith(root+path.sep);
+ if(!within(base,file)||relative.includes('\0'))throw Object.assign(Error('Forbidden path'),{status:403});
+ const realBase=fs.realpathSync(base),real=fs.realpathSync(file);
+ if(!within(realBase,real))throw Object.assign(Error('Forbidden link'),{status:403});
+ return real;
+}
 function bodyHeader(file){
  const fd=fs.openSync(file,'r');
  try{
@@ -19,8 +27,9 @@ function bodyHeader(file){
 export function bionicResourcePlan(dataRoot,asset,extension){
  if(!/^cc_sm_constructor_[a-z0-9_]+$/.test(asset)||!['glb','json'].includes(extension))throw Error('Invalid augmented model request');
  const addon=loadBionicClass({dataRoot,asset});if(!addon)return null;
- const file=path.join(dataRoot,'assets/characters/SM2-retail-constructors/source-v5',asset+'.glb');
- const metadataFile=file.slice(0,-4)+'.json',key=path.resolve(file)+'|'+statKey(file)+'|'+statKey(metadataFile)+'|'+addon.optionRecord.revision;
+ const sourceRoot=path.join(dataRoot,'assets/characters/SM2-retail-constructors/source-v5');
+ const file=sourceFile(sourceRoot,asset+'.glb'),metadataFile=sourceFile(sourceRoot,asset+'.json');
+ const key=path.resolve(file)+'|'+statKey(file)+'|'+statKey(metadataFile)+'|'+addon.optionRecord.revision;
  let plan=plans.get(key);
  if(!plan){
   const original=bodyHeader(file),graft=graftBionicModel(original.json,original.binLength,addon.addonDoc,addon.addonBin,addon.optionRecord);

@@ -7,6 +7,10 @@ import {fileURLToPath} from 'node:url';
 import {graftBionicModel} from '../shared/bionic-graft.mjs';
 
 const identity=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+function glb(doc,bin){
+ const text=Buffer.from(JSON.stringify(doc)),json=Buffer.concat([text,Buffer.alloc((-text.length)&3,32)]),payload=Buffer.concat([bin,Buffer.alloc((-bin.length)&3)]),h=Buffer.alloc(20),bh=Buffer.alloc(8);
+ h.writeUInt32LE(0x46546c67,0);h.writeUInt32LE(2,4);h.writeUInt32LE(28+json.length+payload.length,8);h.writeUInt32LE(json.length,12);h.writeUInt32LE(0x4e4f534a,16);bh.writeUInt32LE(payload.length,0);bh.writeUInt32LE(0x004e4942,4);return Buffer.concat([h,json,bh,payload]);
+}
 function freeze(value){if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value)}return value}
 function fixture({helpers=true}={}){
  const chunks=[],views=[],accessors=[];let size=0;
@@ -54,13 +58,14 @@ function fixture({helpers=true}={}){
   materials:[{name:'preview_steel',pbrMetallicRoughness:{baseColorFactor:[.5,.5,.5,1],metallicFactor:.85}}],
   buffers:[{byteLength:size}],bufferViews:views,accessors,extensionsUsed:['KHR_mesh_quantization']};
  const bin=Buffer.concat([...chunks,Buffer.alloc((-size)&3)]);
- return {base,addon,bin,record:{objectId:9000001,optionId:'forge_left_bionic_v1',meshNames:['forge_arm_L'],sha256:'addon-sha'},
+ return {base,addon,bin,record:{objectId:9000001,optionId:'forge_left_bionic_v1',meshNames:['forge_arm_L'],sha256:crypto.createHash('sha256').update(glb(addon,bin)).digest('hex')},
   ids:{position,joints,weights,joints1,weights1,colors,indices,inverse,geomIndex}};
 }
 const run=f=>graftBionicModel(f.base,256,f.addon,f.bin,f.record);
 
 test('graft is pure and preserves every existing node, mesh, attribute and body binding',()=>{
  const f=fixture(),base=structuredClone(f.base),addon=structuredClone(f.addon),binary=Buffer.from(f.bin);
+ assert.equal(f.record.sha256,crypto.createHash('sha256').update(glb(f.addon,f.bin)).digest('hex'));
  freeze(f.base);freeze(f.addon);freeze(f.record);
  const result=run(f);
  assert.deepEqual(f.base,base);assert.deepEqual(f.addon,addon);assert.deepEqual(f.bin,binary);
@@ -167,10 +172,6 @@ test('recipe export resolves the library option and preserves weighted plus unwe
  const product=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),tempRoot=path.join(product,'.build');
  fs.mkdirSync(tempRoot,{recursive:true});const dir=fs.mkdtempSync(path.join(tempRoot,'bionic-builder-'));
  const write=(relative,value)=>{const file=path.join(dir,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value));return file};
- function glb(doc,bin){
-  const text=Buffer.from(JSON.stringify(doc)),json=Buffer.concat([text,Buffer.alloc((-text.length)&3,32)]),payload=Buffer.concat([bin,Buffer.alloc((-bin.length)&3)]),h=Buffer.alloc(20),bh=Buffer.alloc(8);
-  h.writeUInt32LE(0x46546c67,0);h.writeUInt32LE(2,4);h.writeUInt32LE(28+json.length+payload.length,8);h.writeUInt32LE(json.length,12);h.writeUInt32LE(0x4e4f534a,16);bh.writeUInt32LE(payload.length,0);bh.writeUInt32LE(0x004e4942,4);return Buffer.concat([h,json,bh,payload]);
- }
  function parse(bytes){const n=bytes.readUInt32LE(12);return{doc:JSON.parse(bytes.subarray(20,20+n)),bin:bytes.subarray(28+n)}}
  function accessorBytes(model,id){const a=model.doc.accessors[id],v=model.doc.bufferViews[a.bufferView],sizes={5121:1,5123:2,5126:4},counts={SCALAR:1,VEC3:3,VEC4:4,MAT4:16};const start=(v.byteOffset??0)+(a.byteOffset??0);return model.bin.subarray(start,start+a.count*sizes[a.componentType]*counts[a.type])}
  try{

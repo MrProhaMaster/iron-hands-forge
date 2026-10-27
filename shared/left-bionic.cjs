@@ -1,5 +1,5 @@
 'use strict';
-const fs=require('node:fs'),path=require('node:path');
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const DIRECTORY='assets/characters/SM2-left-bionic/native-v1';
 const MANIFEST=DIRECTORY+'/manifest.json';
 const OPTION_ID='forge_left_bionic_v1';
@@ -36,14 +36,15 @@ function loadBionicClass({dataRoot,classId,asset}){
  const library=loadBionicLibrary(dataRoot),record=library.classes.find(x=>(classId===undefined||x.classId===classId)&&(asset===undefined||x.asset===asset));
  if(!record)return null;
  const file=contained(dataRoot,record.relativePath),cached=models.get(file);
- if(cached?.revision===record.revision)return{...cached.value,optionRecord:record};
+ if(cached?.revision===record.revision&&cached.sha256===record.sha256)return{...cached.value,optionRecord:record};
  const bytes=fs.readFileSync(file);
+ if(crypto.createHash('sha256').update(bytes).digest('hex')!==record.sha256)throw Error('Left-bionic resource checksum mismatch: '+record.classId);
  if(bytes.readUInt32LE(0)!==0x46546c67||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length||bytes.readUInt32LE(16)!==0x4e4f534a)throw Error('Invalid left-bionic GLB');
  const length=bytes.readUInt32LE(12),at=20+length;
  if(length<2||at+8>bytes.length||bytes.readUInt32LE(at+4)!==0x004e4942)throw Error('Invalid left-bionic GLB chunks');
  const binLength=bytes.readUInt32LE(at);if(at+8+binLength!==bytes.length)throw Error('Truncated left-bionic GLB');
  const value={optionRecord:record,addonDoc:JSON.parse(bytes.subarray(20,at).toString('utf8').trim()),addonBin:bytes.subarray(at+8)};
- models.set(file,{revision:record.revision,value});return value;
+ models.set(file,{revision:record.revision,sha256:record.sha256,value});return value;
 }
 function augmentBionicRegistry(registry,library){
  const result=structuredClone(registry);
