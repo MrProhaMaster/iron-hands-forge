@@ -13,12 +13,14 @@ const out=path.resolve(args['--out']);fs.mkdirSync(out,{recursive:true});
 const require=createRequire(import.meta.url),{chromium}=require(process.env.FORGE_PLAYWRIGHT||'playwright');
 const report={schema:'forge-release-browser-qa-v1',passed:false,classes:[],companies:[],groups:[],searchChecks:0,blockedRequests:[],httpFailures:[],pageErrors:[],consoleErrors:[]};
 const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2)+'\n');
-let context;
+let context,shortBrowserRoot;
 try{
  const health=await fetch(new URL('/api/health',base)).then(r=>r.json());assert.equal(health.version,'0.5.0');assert.equal(health.resourcesReady,true);report.health=health;
  if(process.env.FORGE_REQUIRE_BUNDLED==='1')assert.equal(health.dataSource,'bundled');
  const catalog=await fetch(new URL('/api/catalog',base)).then(r=>r.json());const frames=catalog.armor.classes.filter(c=>c.available&&catalog.manifest.assets.some(a=>a.asset===c.tpl));assert.equal(frames.length,10);
- const profile=path.join(out,'browser-profile'),temp=path.join(profile,'temp');fs.mkdirSync(temp,{recursive:true});
+ // Chromium's Unix socket must fit sockaddr_un even under long CI output paths.
+ shortBrowserRoot=process.platform==='linux'?fs.mkdtempSync('/tmp/ihfr-'):null;
+ const profile=shortBrowserRoot?path.join(shortBrowserRoot,'p'):path.join(out,'browser-profile'),temp=shortBrowserRoot?path.join(shortBrowserRoot,'t'):path.join(profile,'temp');fs.mkdirSync(temp,{recursive:true});
  const browserOptions={headless:true,viewport:{width:1440,height:1050},timeout:60000,env:{...process.env,TEMP:temp,TMP:temp,TMPDIR:temp},args:['--enable-unsafe-swiftshader','--disable-background-networking','--disk-cache-dir='+path.join(profile,'cache')]};
  if(process.env.FORGE_BROWSER)browserOptions.executablePath=process.env.FORGE_BROWSER;
  context=await chromium.launchPersistentContext(profile,browserOptions);
@@ -61,5 +63,5 @@ try{
  await page.locator('#recipe-dialog button[aria-label="Close build code"]').click();
  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:path.join(out,'mobile.png'),fullPage:true});
  assert.equal(report.companies.length,10);assert.equal(report.searchChecks,840);assert.deepEqual(report.blockedRequests,[]);assert.deepEqual(report.httpFailures,[]);assert.deepEqual(report.pageErrors,[]);assert.deepEqual(report.consoleErrors,[]);report.passed=true;
-}catch(e){report.error={message:e.message,stack:e.stack};process.exitCode=1;console.error(e)}finally{await context?.close();save()}
+}catch(e){report.error={message:e.message,stack:e.stack};process.exitCode=1;console.error(e)}finally{await context?.close();if(shortBrowserRoot)fs.rmSync(shortBrowserRoot,{recursive:true,force:true});save()}
 console.log(JSON.stringify({passed:report.passed,classes:report.classes.length,companies:report.companies.length,searchChecks:report.searchChecks,build:report.build,report:path.join(out,'report.json')}));
