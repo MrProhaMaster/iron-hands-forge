@@ -47,7 +47,7 @@ const requestedClassIds=process.env.FORGE_QA_CLASSES?.split(',').map(value=>valu
 if(requestedClassIds)for(const id of requestedClassIds)assert.ok(expectedClasses.has(id),'Unknown scoped QA class: '+id);
 const report={schema:'iron-hands-forge-left-bionic-browser-qa-v1',passed:false,base:base.origin,
  startedAt:new Date().toISOString(),profile,temp,shortBrowserRoot,executable:executable??'Playwright bundled Chromium',
- initialRosterOverride:'A page-init fetch hook supplies only /api/roster for one initial class. Native asset requests use unmodified fetch with no Playwright request interception. Explicit Save squad is exercised in the designated QA server state.',
+ initialRosterOverride:'A page-init fetch hook supplies only /api/roster and /api/workspace/single for one initial class. Assembled preview GLB requests use unmodified fetch with no Playwright request interception. Explicit Save marine is exercised in the designated QA server state.',
  requestedClassIds:requestedClassIds??[...expectedClasses.keys()],
  classes:[],browserErrors:[],pageErrors:[],consoleErrors:[],httpFailures:[],requestFailures:[],completedByteStreamCancellations:[],cancelledOnPageClose:[],blockedRequests:[],externalRequests:[],networkLifecycle:[]};
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
@@ -113,7 +113,11 @@ async function selectPart(page,slotOption){
  const labels=await buttons.evaluateAll(nodes=>nodes.map((node,i)=>({i,label:node.querySelector('.label')?.childNodes[0]?.textContent?.trim()})));
  const matches=labels.filter(item=>item.label===optionLabel(slotOption));
  assert.equal(matches.length,1,'Part card is missing or ambiguous: '+slotOption.id);
+ const preview=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/preview'&&response.request().method()==='POST');
  await buttons.nth(matches[0].i).click();
+ const response=await preview;assert.ok(response.ok(),'Selected part preview must build successfully');
+ const record=await response.json();assert.match(record.url,/^\/previews\/[^/]+\/[^/]+\.glb$/);
+ await ready(page,await page.locator('#body-class').inputValue());await renderSettled(page);return record;
 }
 async function screenshot(page,file){
  await renderSettled(page);const target=path.join(out,file);await page.locator('#stage').screenshot({path:target});return target;
@@ -126,7 +130,7 @@ async function mode(page,gait,stance,classId){
 async function observeModelNetwork(page,row){
  const session=await context.newCDPSession(page),requests=new Map();await session.send('Network.enable');
  session.on('Network.requestWillBeSent',event=>{
-  if(!/\/retail-v5\/[^/]+\.glb(?:\?|$)/.test(event.request.url))return;
+  if(!/\/previews\/[^/]+\/[^/]+\.glb(?:\?|$)/.test(event.request.url))return;
   const entry={classId:row.classId,requestId:event.requestId,url:event.request.url,frameId:event.frameId,
    loaderId:event.loaderId,type:event.type,method:event.request.method,phase:row.phase??'loading',
    startedTimestamp:event.timestamp,wallTime:event.wallTime,initiator:event.initiator,receivedDataLength:0,receivedEncodedDataLength:0};
@@ -213,9 +217,9 @@ try{
     if(url.origin!==origin&&!['data:','blob:'].includes(url.protocol)){
      window.__forgeQaBlockedRequests.push(url.href);return Promise.reject(new Error('QA blocked external fetch: '+url.href));
     }
-    if(url.origin===origin&&url.pathname==='/api/roster')return Promise.resolve(new Response(JSON.stringify(roster),{status:200,headers:{'Content-Type':'application/json'}}));
+    if(url.origin===origin&&['/api/roster','/api/workspace/single'].includes(url.pathname))return Promise.resolve(new Response(JSON.stringify(roster),{status:200,headers:{'Content-Type':'application/json'}}));
     const startedAt=Date.now(),promise=nativeFetch(resource,init);
-    if(/\/retail-v5\/[^/]+\.glb$/.test(url.pathname))promise.then(response=>{
+    if(/\/previews\/[^/]+\/[^/]+\.glb$/.test(url.pathname))promise.then(response=>{
      const receipt={url:url.href,fetchStartedAt:startedAt,responseAt:Date.now(),status:response.status,
       contentLength:Number(response.headers.get('Content-Length')),receivedBytes:0,readCalls:0,cleanEOF:false,signalAborted:false};
      window.__forgeQaBodyReceipts.push(receipt);
@@ -229,14 +233,15 @@ try{
   },{origin:base.origin,roster:{soldiers:[{id:'qa_'+cls.id,role:'QA',classId:cls.id,selection:{},paint:{armor:'#171B22',metal:'#B3BDC9',lenses:'#EE291C'}}]}});
   await page.goto(new URL('/?inspect=1',base).href,{waitUntil:'domcontentloaded',timeout:240000});await ready(page,cls.id);
   const classIds=await page.locator('#body-class option').evaluateAll(nodes=>nodes.filter(n=>!n.disabled).map(n=>n.value));
-  assert.deepEqual(classIds.sort(),[...expectedClasses.keys()].sort());
+  assert.equal(classIds.length,10);assert.ok([...expectedClasses.keys()].every(id=>classIds.includes(id)),'All seven native frames remain available alongside imported frames');
   if(await page.locator('#spin').isChecked())await page.locator('#spin').uncheck();
   const original=await inspect(page);finitePose(original,cls.id+' original');
   row.originalLeftOptionId=original.selected.LEFT_GAUNTLET;
   const originalOption=slot.options.find(o=>o.id===row.originalLeftOptionId);assert.ok(originalOption);
   assert.notEqual(originalOption.id,option.id,'Fresh class must start with an original left option');
-  await page.locator('#categories').getByRole('button',{name:'Left gauntlet',exact:true}).click();
-  await selectPart(page,option);
+  await page.locator('#categories button[data-group-id="gauntlets"]').click();await page.locator('#slot-subnav button[data-slot-id="LEFT_GAUNTLET"]').click();
+  const bionicPreview=await selectPart(page,option);
+  row.bionicPreview={...bionicPreview,url:new URL(bionicPreview.url,base).href};
   row.phase='bionic-selected';
   let selected=await inspect(page);checkBionicPose(selected,row,cls.id+' selected');row.selectedRest=selected;
   await page.locator('#focus').click();row.gripRestPNG=await screenshot(page,cls.id.toLowerCase()+'-grip-rest-detail.png');await page.locator('#fit').click();
@@ -290,7 +295,7 @@ try{
   row.shareRoundTrip={codeLength:code.length,codeSHA256:hash(Buffer.from(code)),recipe,imported};
   row.phase='save-squad';
   await page.locator('#save-roster').click();
-  await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Squad saved.'));
+  await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Marine saved.'));
   const persisted=await jsonGET('/api/roster'),savedSoldier=persisted.soldiers.find(s=>s.classId===cls.id);
   assert.ok(savedSoldier,'Saved squad must contain the active class');
   assert.equal(savedSoldier.selection.LEFT_GAUNTLET,option.id);assert.equal(savedSoldier.paint.metal.toUpperCase(),metal.toUpperCase());
@@ -330,33 +335,37 @@ try{
  assert.equal(report.classes.length,classes.length);assert.ok(report.classes.every(c=>c.passed&&c.motions.length===4));
  const cdpContentLength=entry=>Number(Object.entries(entry.response?.headers??{}).find(([key])=>key.toLowerCase()==='content-length')?.[1]);
  function completeConsumerProof(row,entry){
-  const candidates=row.bodyReadProof.receipts.filter(receipt=>receipt.url===entry.url);
-  const requests=report.networkLifecycle.filter(other=>other.classId===row.classId&&other.url===entry.url);
-  if(candidates.length!==1||requests.length!==1)return null;
+  // The same cached preview is fetched again when switching back to a part.
+  // Require a unique mutual timestamp match, rather than conflating those bodies.
+  const sameStart=(wallTime,fetchStartedAt)=>Number.isFinite(wallTime)&&Number.isFinite(fetchStartedAt)&&Math.abs(wallTime*1000-fetchStartedAt)<=25;
+  const candidates=row.bodyReadProof.receipts.filter(receipt=>receipt.url===entry.url&&sameStart(entry.wallTime,receipt.fetchStartedAt));
+  if(candidates.length!==1)return null;
   const receipt=candidates[0],length=cdpContentLength(entry);
+  const requests=report.networkLifecycle.filter(other=>other.classId===row.classId&&other.url===entry.url&&sameStart(other.wallTime,receipt.fetchStartedAt));
+  if(requests.length!==1||requests[0]!==entry)return null;
   if(receipt.status!==200||entry.response?.status!==200||!receipt.cleanEOF||receipt.readerError||receipt.readerCancel||receipt.streamCancel||receipt.signalAborted||row.bodyReadProof.abortCalls.length)return null;
   if(!Number.isSafeInteger(length)||length<=0||entry.receivedDataLength!==length||receipt.receivedBytes!==length||receipt.contentLength!==length||receipt.declaredGLBLength!==length)return null;
   if(receipt.magic!==0x46546c67||receipt.version!==2||receipt.jsonChunkType!==0x4e4f534a||receipt.binChunkType!==0x004e4942||28+receipt.jsonChunkLength+receipt.binChunkLength!==length)return null;
   return receipt;
  }
  report.requestFailures=report.requestFailures.filter(item=>{
-  const row=report.classes.find(c=>c.classId===item.classId),entries=report.networkLifecycle.filter(entry=>entry.classId===item.classId&&entry.url===item.url&&entry.failed);
+  const row=report.classes.find(c=>c.classId===item.classId),entries=report.networkLifecycle.filter(entry=>entry.classId===item.classId&&entry.url===item.url&&entry.failed&&Number.isFinite(item.timing?.startTime)&&Math.abs(entry.wallTime*1000-item.timing.startTime)<=25);
   if(item.error==='net::ERR_ABORTED'&&entries.length===1&&entries[0].failed.canceled===true){
    const receipt=completeConsumerProof(row,entries[0]);
    if(receipt){report.completedByteStreamCancellations.push({event:item,requestId:entries[0].requestId,frameId:entries[0].frameId,receipt,
-    reason:'The native body reader reached clean EOF, all declared bytes and both GLB chunk headers are complete, and no abort/cancel/signal call occurred. CDP cancellation is retained as transport bookkeeping; unknown/incomplete transfers still fail.'});return false}
+    reason:'The assembled preview body reader reached clean EOF, all declared bytes and both GLB chunk headers are complete, and no abort/cancel/signal call occurred. CDP cancellation is retained as transport bookkeeping; unknown/incomplete transfers still fail.'});return false}
   }
   return true;
  });
  for(const row of report.classes){
-  const transfers=report.networkLifecycle.filter(entry=>entry.classId===row.classId&&new URL(entry.url).pathname==='/retail-v5/'+row.asset+'.glb');
+  const transfers=report.networkLifecycle.filter(entry=>entry.classId===row.classId&&entry.url===row.bionicPreview.url);
   const complete=transfers.filter(entry=>{
    const length=cdpContentLength(entry),consumer=completeConsumerProof(row,entry);
    return entry.response?.status===200&&Number.isSafeInteger(length)&&length>0&&entry.receivedDataLength===length&&
     (entry.finished&&!entry.failed||consumer&&entry.failed?.canceled&&entry.failed.errorText==='net::ERR_ABORTED');
   });
-  assert.ok(complete.length>0,row.classId+': exact native GLB must finish with all declared bytes received');
-  row.nativeTransferProof=complete.map(entry=>({requestId:entry.requestId,url:entry.url,frameId:entry.frameId,
+  assert.ok(complete.length>0,row.classId+': exact selected bionic preview GLB must finish with all declared bytes received');
+  row.assembledTransferProof=complete.map(entry=>({requestId:entry.requestId,url:entry.url,frameId:entry.frameId,
    declaredBytes:cdpContentLength(entry),receivedBytes:entry.receivedDataLength,finishedTimestamp:entry.finished?.timestamp,
    consumerEOF:!!completeConsumerProof(row,entry),completion:entry.finished?'CDP-loadingFinished':'consumer-clean-EOF-with-CDP-cancel'}));
  }

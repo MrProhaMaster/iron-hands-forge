@@ -1,3 +1,4 @@
+import {normalizeAppearance} from './appearance.mjs';
 /** Portable IHF1 recipe codec, browser + Node; no assets or dependencies.
  * normalizeRecipe(value) -> fresh validated recipe (uppercase paint colors).
  * await encodeRecipe(value) -> IHF1.<base64url(zlib-deflate canonical UTF8 JSON)>.<crc32>.
@@ -49,7 +50,7 @@ function color(value, path) {
 }
 function soldier(value, index) {
   const path = `soldiers[${index}]`;
-  const v = object(value, ['id','role','classId','selection','paint'], ['motion'], path);
+  const v = object(value, ['id','role','classId','selection','paint'], ['motion','appearance'], path);
   const s = v.selection;
   if (!s || typeof s !== 'object' || Array.isArray(s) || ![Object.prototype, null].includes(Object.getPrototypeOf(s))) fail('INVALID_SCHEMA', `${path}.selection must be a plain object`);
   const selection = {};
@@ -67,6 +68,9 @@ function soldier(value, index) {
     if (!['walk','run'].includes(m.gait) || !['unarmed','armed'].includes(m.stance) ||
         !Number.isInteger(m.speedPct) || m.speedPct < 50 || m.speedPct > 200 || m.inPlace !== true) fail('INVALID_SCHEMA', `${path}.motion is invalid`);
     result.motion = {gait:m.gait,stance:m.stance,speedPct:m.speedPct,inPlace:true};
+  }
+  if (own(v,'appearance')) {
+    try {result.appearance=normalizeAppearance(v.appearance);}catch(error){fail('INVALID_SCHEMA',error.message);}
   }
   return result;
 }

@@ -44,6 +44,8 @@ function Copy-DirectoryContents([string]$Source, [string]$Destination) {
 
 $DotnetExe = Resolve-Tool $DotnetExe @((Join-Path $productRoot '../../tools/sm2-extractor/dotnet/dotnet.exe')) 'dotnet.exe'
 $NodeExe = Resolve-Tool $NodeExe @((Join-Path $productRoot 'runtime/node.exe'), (Join-Path $productRoot '../../tools/node/node.exe')) 'node.exe'
+& $NodeExe -e 'const path=require("node:path"),root=process.argv[1];require(path.join(root,"shared/release-policy.cjs")).assertIterationVersion(require(path.join(root,"package.json")).version)' $productRoot
+if ($LASTEXITCODE -ne 0) { throw 'The Forge local iteration version policy rejected this build.' }
 if (-not $DataRoot) { throw 'Pass -DataRoot with a complete prepared library. Release builds include all seven classes for offline first launch.' }
 $DataRoot = [IO.Path]::GetFullPath($DataRoot)
 if (-not (Test-Path -LiteralPath $DataRoot -PathType Container)) { throw "Prepared resource folder not found: $DataRoot" }

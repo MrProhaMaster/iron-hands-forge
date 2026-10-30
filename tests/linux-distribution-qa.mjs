@@ -1,5 +1,5 @@
 // Native acceptance for a test-owned extraction of the actual Linux release archive.
-// --browser also runs offline-browser-qa.mjs against the relocated, bundled application.
+// --browser runs the 0.5.0 release UI and seven native bionic checks against the relocated application.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -102,7 +102,7 @@ async function stop(record) {
 }
 
 async function runBrowser(base, env, bionic = false) {
-  const script = fileURLToPath(new URL(bionic ? './left-bionic-browser-qa.mjs' : './offline-browser-qa.mjs', import.meta.url));
+  const script = fileURLToPath(new URL(bionic ? './left-bionic-browser-qa.mjs' : './release-browser-qa.mjs', import.meta.url));
   const label = bionic ? 'left-bionic-browser' : 'browser';
   const browserOut = path.join(out, label);
   const child = spawn(process.execPath, [script, '--url', base, '--out', browserOut], {
@@ -119,12 +119,12 @@ async function runBrowser(base, env, bionic = false) {
   const result = await waitExit(record, 25 * 60 * 1000);
   assert.equal(result.code, 0, label + ' acceptance failed: ' + record.stderr);
   const resultReport = json(path.join(browserOut, 'report.json'));
-  assert.equal(resultReport.passed, true); assert.equal(resultReport.classes.length, 7);
+  assert.equal(resultReport.passed, true); assert.equal(resultReport.classes.length, bionic ? 7 : 10);
   if (bionic) {
     assert.deepEqual(resultReport.browserErrors, []); assert.deepEqual(resultReport.httpFailures, []);
     report.leftBionics = {passed: true, report: path.join(browserOut, 'report.json'), classes: resultReport.classes.length};
   } else {
-    assert.deepEqual(resultReport.blockedRequests, []);
+    assert.deepEqual(resultReport.blockedRequests, []); assert.deepEqual(resultReport.httpFailures, []); assert.deepEqual(resultReport.pageErrors, []);
     report.browser = {passed: true, report: path.join(browserOut, 'report.json'), classes: resultReport.classes.length, build: resultReport.build};
   }
 }
@@ -153,11 +153,13 @@ try {
   const version = json(path.join(directory, 'package.json')).version;
   assert.equal(execFileSync(path.join(directory, 'runtime/node'), ['--version'], {encoding: 'utf8'}).trim(), 'v24.19.0');
   const payload = verifyBundle(path.join(directory, 'data'));
-  assert.equal(payload.classes, 7); assert.equal(payload.files, 30); assert.equal(payload.armorOptions, 1735); assert.equal(payload.appVersion, version);
+  assert.equal(payload.classes, 7); assert.equal(payload.files, 119); assert.equal(payload.astartes.ready, true); assert.equal(payload.astartes.profiles, 3); assert.equal(payload.appVersion, version);
+  const baselineFile=process.env.FORGE_WINDOWS_BUNDLE_MANIFEST;
+  if(baselineFile)assert.deepEqual(json(path.join(directory,'data/bundle-manifest.json')).files,json(baselineFile).files,'Linux resource bytes/hashes must match the verified Windows release exactly.');
   report.resources = payload;
   report.tests.push({name: 'actual-archive-integrity-posix-executable-modes-and-complete-bundle', passed: true});
 
-  const env = {...process.env, XDG_STATE_HOME: path.join(out, 'xdg state'), XDG_CACHE_HOME: path.join(out, 'xdg cache')};
+  const env = {...process.env, FORGE_DATA_ROOT: path.join(directory, 'data'), XDG_STATE_HOME: path.join(out, 'xdg state'), XDG_CACHE_HOME: path.join(out, 'xdg cache')};
   const stateRoot = path.join(env.XDG_STATE_HOME, 'iron-hands-forge');
   const port = await freePort();
   const first = launch(directory, 'concurrent-start-a', ['--port', String(port)], env);
@@ -178,18 +180,23 @@ try {
 
   const catalog = await fetch(new URL('/api/catalog', ready.url)).then(response => response.json());
   const available = catalog.armor.classes.filter(item => item.available && catalog.manifest.assets.some(asset => asset.asset === item.tpl));
-  assert.equal(available.length, 7); assert.equal(catalog.configured, true);
+  assert.equal(available.length, 10); assert.equal(available.filter(item=>!item.forgeBodyFrame).length, 7); assert.equal(catalog.configured, true);
+  const astartesCatalog=json(path.join(directory,'data/assets/customization/astartes-v1/catalog.json'));
   const paints = await fetch(new URL('/api/paints', ready.url)).then(response => response.json());
   assert.ok(paints.colors.length > 0);
   for (const item of available) {
-    const route = new URL('/retail-v5/' + item.tpl + '.glb', ready.url);
+    const model=item.forgeBodyFrame?astartesCatalog.models.find(model=>model.id===item.forgeBodyFrame.sourceModel):null;
+    if(item.forgeBodyFrame)assert.ok(model,'A source-backed mod frame must have its prepared model.');
+    const sourceRoute=model?'/customization/'+model.glb.replace(/^assets\/customization\//,''):'/retail-v5/'+item.tpl+'.glb';
+    const metadataRoute=model?'/customization/'+model.metadata.replace(/^assets\/customization\//,''):'/retail-v5/'+item.tpl+'.json';
+    const route = new URL(sourceRoute, ready.url);
     const head = await fetch(route, {method: 'HEAD'}); assert.equal(head.status, 200);
     const bytes = Number(head.headers.get('content-length')); assert.ok(bytes > 10000);
     const range = await fetch(route, {headers: {Range: 'bytes=0-11'}}); assert.equal(range.status, 206);
     const header = Buffer.from(await range.arrayBuffer()); assert.equal(header.length, 12);
     assert.equal(header.readUInt32LE(0), 0x46546c67); assert.equal(header.readUInt32LE(8), bytes);
-    const meta = await fetch(new URL('/retail-v5/' + item.tpl + '.json', ready.url), {method: 'HEAD'}); assert.equal(meta.status, 200);
-    report.classes.push({classId: item.id, asset: item.tpl, bytes});
+    const meta = await fetch(new URL(metadataRoute, ready.url), {method: 'HEAD'}); assert.equal(meta.status, 200);
+    report.classes.push({classId: item.id, asset: model?.id||item.tpl, sourceRoute, metadataRoute, bytes});
     for (const gait of ['walk', 'run']) for (const style of ['unarmed', 'armed']) {
       const motion = await fetch(new URL('/api/motion?' + new URLSearchParams({classId: item.id, gait, style}), ready.url)).then(response => response.json());
       assert.ok(motion.channels.length > 0 && motion.frameCount > 1 && motion.duration > 0);
@@ -197,14 +204,14 @@ try {
       report.motions.push({classId: item.id, gait, style, frames: motion.frameCount, channels: motion.channels.length});
     }
   }
-  assert.equal(report.motions.length, 28);
-  report.tests.push({name: 'seven-real-models-paint-library-and-28-motion-bindings-served-locally', passed: true});
+  assert.equal(report.motions.length, 40);
+  report.tests.push({name: 'ten-source-backed-models-paint-library-and-40-motion-bindings-served-locally', passed: true});
   await stop(owner);
   report.tests.push({name: 'sigterm-stops-only-the-owned-http-server', passed: true});
 
   // The extracted copy belongs to this QA run. Move it rather than duplicating the large data payload.
   const relocated = path.join(extracted, 'Iron Hands Forge relocated — проверка');
-  assert.equal(path.dirname(relocated), extracted); fs.renameSync(directory, relocated); directory = relocated;
+  assert.equal(path.dirname(relocated), extracted); fs.renameSync(directory, relocated); directory = relocated; env.FORGE_DATA_ROOT=path.join(directory,'data');
   fs.mkdirSync(stateRoot, {recursive: true});
   fs.writeFileSync(path.join(stateRoot, 'settings.json'), JSON.stringify({dataRoot: path.join(extracted, folder, 'data')}));
   const relocatedOwner = launch(directory, 'relocated-with-stale-saved-path', ['--port', String(await freePort())], env);
@@ -216,7 +223,7 @@ try {
   report.tests.push({name: 'archive-relocation-spaces-unicode-and-stale-library-fallback', passed: true});
   if (options.browser) {
     await runBrowser(relocatedReady.url, env);
-    report.tests.push({name: 'offline-chromium-seven-classes-edit-paint-share-export-and-resource-reset', passed: true});
+    report.tests.push({name: 'offline-chromium-ten-classes-game-style-slots-company-heraldry-and-glb-export', passed: true});
     await runBrowser(relocatedReady.url, env, true);
     report.tests.push({name: 'seven-left-bionic-arms-native-compatibility-motion-save-share-and-glb-export', passed: true});
   }

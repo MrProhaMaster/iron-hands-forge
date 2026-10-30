@@ -5,6 +5,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {bundleResources,verifyBundle,safeRelative,sanitizeJSON} from '../scripts/bundle-resources.mjs';
+import {SERVO_CHANNELS,loadServoPose} from '../shared/servo-arm.mjs';
+import {createAstartesFixture} from './fixtures/astartes-library.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const MODEL='assets/characters/SM2-retail-constructors/source-v5';
@@ -100,4 +102,99 @@ test('portable paths reject platform-specific absolute paths, URL schemes and tr
   for(const value of ['../x','x/../y','/tmp/x','C:/private/x','C:\\private\\x','\\\\host\\share\\x','https://example.com/x','nested/C:/private/x','x//y','x/./y','x\0y'])assert.throws(()=>safeRelative(value),/Unsafe/);
   assert.equal(safeRelative(MODEL+'/example.glb'),MODEL+'/example.glb');
   assert.deepEqual(sanitizeJSON({source:'E:\\Data\\assets\\x.glb',external:'See C:\\Users\\person\\x.glb',posix:'/home/person/game.pak'},'E:/Data'),{source:'assets/x.glb',external:'See source-input/x.glb',posix:'source-input/game.pak'});
+});
+
+function addIronHandsFixture(f){
+  const directory='assets/customization/iron-hands-v1',catalogPath=directory+'/catalog.json',modelPath=directory+'/carriers/native.glb',texturePath=directory+'/textures/native.png';
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+pU8sAAAAASUVORK5CYII=','base64');
+  const catalog={schema:'iron-hands-forge-iron-hands-catalog',version:1,classes:[{classIds:f.classes.map(c=>c.id),sourceConstructor:f.classes[0].tpl,carrierGLB:modelPath,carriers:[{nativeObjectId:42,nativeName:'native',slot:'LEFT_PAULDRON',uvSet:0,skinned:true,glbNodeIndices:[0],glbMeshIndices:[0]}],armorOptionBindings:[]}],
+    decals:[{id:'Left_Pau_Decal_Iron_Hands',section:'LEFT_PAULDRON',material:'iron_hands_01'}],materials:[{slot:'LEFT_PAULDRON',materialKey:'iron_hands_01',textures:{base:'native'}}],
+    colors:[{id:'White_Scar',rgba:{r:255,g:255,b:255,a:255}}],textures:{native:{path:texturePath,width:1,height:1}},armorTags:{}};
+  const payloads=new Map([[catalogPath,Buffer.from(JSON.stringify(catalog))],[modelPath,fs.readFileSync(path.join(f.source,MODEL,f.classes[0].tpl+'.glb'))],[texturePath,png]]);
+  const manifest={schema:'iron-hands-forge-customization-library',version:1,catalog:catalogPath,files:[]};
+  for(const[relative,bytes]of payloads){const file=path.join(f.source,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);manifest.files.push({path:relative,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')})}
+  const manifestPath=directory+'/manifest.json';writeJSON(path.join(f.source,manifestPath),manifest);
+  return{directory,manifestPath,catalogPath,modelPath,texturePath,manifest};
+}
+
+test('bundle preserves and declares optional native Iron Hands subset byte-for-byte',()=>{
+  const f=fixture();try{
+    const ih=addIronHandsFixture(f),before=new Map([ih.manifestPath,...ih.manifest.files.map(x=>x.path)].map(relative=>[relative,fs.readFileSync(path.join(f.source,relative))]));
+    const result=bundleResources(f.source,f.out),manifest=readJSON(path.join(f.out,'bundle-manifest.json'));
+    assert.equal(result.files,26);assert.deepEqual(result.ironHands,{ready:true,decals:1,textures:1,carrierLibraries:1,nativeCarriers:1});
+    assert.deepEqual(manifest.customization.ironHands,result.ironHands);
+    for(const[relative,bytes]of before){assert.ok(manifest.files.some(x=>x.path===relative));assert.deepEqual(fs.readFileSync(path.join(f.out,relative)),bytes);assert.equal(digest(path.join(f.source,relative)),crypto.createHash('sha256').update(bytes).digest('hex'))}
+    assert.deepEqual(verifyBundle(f.out),result);
+    const png=path.join(f.out,ih.texturePath),bytes=fs.readFileSync(png);bytes[bytes.length-1]^=1;fs.writeFileSync(png,bytes);
+    assert.throws(()=>verifyBundle(f.out),/checksum mismatch/);
+  }finally{removeFixture(f.base)}
+});
+
+test('a damaged present Iron Hands subset is rejected before packaging and never silently omitted',()=>{
+  const f=fixture();try{
+    const ih=addIronHandsFixture(f);fs.unlinkSync(path.join(f.source,ih.texturePath));
+    assert.throws(()=>bundleResources(f.source,f.out),/ENOENT|missing/);assert.equal(fs.existsSync(f.out),false);
+  }finally{removeFixture(f.base)}
+});
+
+test('an incomplete Iron Hands directory cannot masquerade as a legacy library without customization',()=>{
+  const f=fixture();try{
+    const ih=addIronHandsFixture(f);fs.unlinkSync(path.join(f.source,ih.manifestPath));
+    assert.throws(()=>bundleResources(f.source,f.out),/manifest is missing/);assert.equal(fs.existsSync(f.out),false);
+  }finally{removeFixture(f.base)}
+});
+
+
+
+function addServoFixture(f){
+  const directory='assets/customization/servo-arm-v1',profilePath=directory+'/default-pose.json',manifestPath=directory+'/manifest.json';
+  const profile={schema:'iron-hands-forge-servo-startup-pose',version:1,policy:'native-startup-pose-original-bind',
+    source:{clip:'tacticus_wpn0_idle_mech_arm_intercessor',sha256:'a'.repeat(64),frameIndex:0,retimed:false},
+    compatibility:{sourceClassId:'PVE_PVP_ENGINEER',slotId:'VANITY_3',optionIds:['vanity_engineer_common_01']},
+    channels:SERVO_CHANNELS.map(name=>({name,translation:[0,0,0],rotation:[0,0,0,1]}))};
+  writeJSON(path.join(f.source,profilePath),profile);
+  const file=path.join(f.source,profilePath),manifest={schema:'iron-hands-forge-servo-library',version:1,profile:profilePath,files:[{path:profilePath,bytes:fs.statSync(file).size,sha256:digest(file)}]};
+  writeJSON(path.join(f.source,manifestPath),manifest);return{directory,profilePath,manifestPath,profile,manifest};
+}
+
+test('bundle preserves optional servo startup profile bytes, hashes and its native 29-channel policy',()=>{
+  const f=fixture();try{
+    const servo=addServoFixture(f),before=fs.readFileSync(path.join(f.source,servo.profilePath)),result=bundleResources(f.source,f.out),manifest=readJSON(path.join(f.out,'bundle-manifest.json'));
+    assert.equal(result.files,24);assert.deepEqual(result.servoPose,{ready:true,channels:29});assert.deepEqual(manifest.customization.servoPose,result.servoPose);
+    for(const relative of[servo.profilePath,servo.manifestPath])assert.ok(manifest.files.some(row=>row.path===relative));
+    assert.deepEqual(fs.readFileSync(path.join(f.out,servo.profilePath)),before);assert.deepEqual(loadServoPose(f.out).profile,servo.profile);
+    assert.deepEqual(verifyBundle(f.out),result);
+    fs.appendFileSync(path.join(f.out,servo.profilePath),' ');assert.throws(()=>verifyBundle(f.out),/checksum mismatch/);
+  }finally{removeFixture(f.base)}
+});
+
+test('present incomplete or invalid servo profile data is rejected before bundling',()=>{
+  const f=fixture();try{
+    const servo=addServoFixture(f);fs.unlinkSync(path.join(f.source,servo.manifestPath));
+    assert.throws(()=>bundleResources(f.source,f.out),/Servo profile manifest is missing/);assert.equal(fs.existsSync(f.out),false);
+    servo.manifest.files[0].path='../outside.json';writeJSON(path.join(f.source,servo.manifestPath),servo.manifest);
+    assert.throws(()=>bundleResources(f.source,f.out),/Invalid servo profile/);assert.equal(fs.existsSync(f.out),false);
+  }finally{removeFixture(f.base)}
+});
+
+test('portable bundle preserves every declared Astartes payload and rejects inventory tampering',()=>{
+ const f=fixture();try{
+  const addon=createAstartesFixture(path.join(f.base,'astartes-input')),relative='assets/customization/astartes-v1';
+  fs.cpSync(path.join(f.base,'astartes-input',relative),path.join(f.source,relative),{recursive:true});
+  const expected=fs.readFileSync(path.join(f.source,relative,'catalog.json'));
+  const result=bundleResources(f.source,f.out);
+  assert.equal(result.astartes.ready,true);assert.equal(result.astartes.profiles,1);assert.equal(result.astartes.models,1);
+  assert.equal(result.astartes.options,addon.catalog.options.length);
+  assert.deepEqual(fs.readFileSync(path.join(f.out,relative,'catalog.json')),expected);
+  const manifestFile=path.join(f.out,'bundle-manifest.json'),manifest=readJSON(manifestFile);
+  manifest.customization.astartes.options+=1;writeJSON(manifestFile,manifest);
+  assert.throws(()=>verifyBundle(f.out),/Astartes inventory/);
+ }finally{removeFixture(f.base)}
+});
+
+test('a present but incomplete Astartes subset cannot be packaged as an offline release',()=>{
+ const f=fixture();try{
+  fs.mkdirSync(path.join(f.source,'assets/customization/astartes-v1'),{recursive:true});
+  assert.throws(()=>bundleResources(f.source,f.out),/Astartes.*manifest/i);
+ }finally{removeFixture(f.base)}
 });

@@ -223,5 +223,32 @@
   },
   "canonicalGameFacialController": false,
   "inheritedOnlyChannelPolicy": "Preserve target local bind only when positionMode and rotationMode are both fixed; inherit animated parents.",
-  "validationScope": "Seven verified V5 playable rigs using shared native preview body loops; Techmarine default and mastercrafted servo-arm preserve all source influences and follow animated body ancestors."
+  "validationScope": "Seven verified V5 playable rigs using shared native preview body loops; Techmarine default and mastercrafted servo-arm preserve all source influences and follow animated body ancestors.",
+  "aliases": {
+    "PVE_PVP_CHARACTER_MOD_2": {
+      "profileId": "PVE_PVP_CHARACTER_MOD_2",
+      "baseClassId": "PVE_PVP_SOLDIER",
+      "asset": "cc_sm_constructor_soldier",
+      "sourceModel": "astartes_cc_sm_constructor_soldier",
+      "status": "source-backed-profile",
+      "policy": "native-body-clips-on-source-backed-astartes-frame"
+    },
+    "PVE_PVP_CHARACTER_MOD_3": {
+      "profileId": "PVE_PVP_CHARACTER_MOD_3",
+      "baseClassId": "PVE_PVP_SOLDIER",
+      "asset": "cc_sm_constructor_soldier",
+      "sourceModel": "astartes_cc_sm_constructor_soldier",
+      "status": "source-backed-profile",
+      "policy": "native-body-clips-on-source-backed-astartes-frame"
+    },
+    "PVE_PVP_CHARACTER_MOD_1": {
+      "profileId": "PVE_PVP_CHARACTER_MOD_1",
+      "baseClassId": "PVE_PVP_TANK",
+      "asset": "cc_sm_constructor_tank",
+      "sourceModel": "astartes_cc_sm_constructor_tank",
+      "status": "source-backed-profile",
+      "policy": "native-body-clips-on-source-backed-astartes-frame"
+    }
+  },
+  "profileAliasScope": "Only prepared Astartes body frames may expose these class IDs. They use the actual mod constructor skeleton; the four native body clip files and times are unchanged. This is an appearance preview, not the native game class/facial controller."
 }

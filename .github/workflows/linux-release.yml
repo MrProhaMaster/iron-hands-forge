@@ -2,12 +2,25 @@ name: Linux portable distribution
 
 on:
   workflow_dispatch:
+    inputs:
+      release_id:
+        description: Existing draft v0.5.0 release ID
+        required: true
+        type: string
+      windows_asset_id:
+        description: Verified Windows ZIP asset ID on that draft release
+        required: true
+        type: string
+      windows_sha256:
+        description: SHA-256 of that Windows ZIP, verified before upload
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: linux-release-${{ github.ref }}
+  group: linux-release-${{ inputs.release_id }}
   cancel-in-progress: false
 
 jobs:
@@ -15,32 +28,131 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
-      FORGE_RELEASE_VERSION: '0.4.0'
-      FORGE_SOURCE_VERSION: '0.3.0'
+      FORGE_RELEASE_VERSION: '0.5.0'
       FORGE_NODE_VERSION: '24.19.0'
       FORGE_NODE_ARCHIVE_SHA256: 14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647
-      FORGE_WINDOWS_SHA256: b6de2aeb3e0f1386954808a86b3d5d4ac4be9cb16eb87da314d07b68dc47394f
+      FORGE_RELEASE_ID: ${{ inputs.release_id }}
+      FORGE_WINDOWS_ASSET_ID: ${{ inputs.windows_asset_id }}
+      FORGE_WINDOWS_SHA256: ${{ inputs.windows_sha256 }}
       FORGE_PYTHON: python3
       FORGE_NODE: node
       FORGE_REQUIRE_BUNDLED: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
-      - name: Configure absolute QA dependency paths
+      - name: Check out the release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified official tag
+        with:
+          persist-credentials: false
+
+      - name: Configure isolated QA dependency paths
         shell: bash
         run: |
           echo "FORGE_PLAYWRIGHT=$RUNNER_TEMP/forge-playwright/node_modules/playwright" >> "$GITHUB_ENV"
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/forge-playwright-browsers" >> "$GITHUB_ENV"
-
-      - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified official tag
-        with:
-          persist-credentials: false
+          echo "FORGE_WINDOWS_BUNDLE_MANIFEST=$RUNNER_TEMP/forge-source-bundle-manifest.json" >> "$GITHUB_ENV"
 
       - name: Set up Python for source regression tests
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5, verified official tag
         with:
           python-version: '3.13'
+
+      - name: Validate draft release and Windows asset provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re, urllib.parse, urllib.request
+          env = os.environ
+          assert re.fullmatch(r'[1-9][0-9]*', env['FORGE_RELEASE_ID']), 'Invalid release ID'
+          assert re.fullmatch(r'[1-9][0-9]*', env['FORGE_WINDOWS_ASSET_ID']), 'Invalid Windows asset ID'
+          assert re.fullmatch(r'[a-fA-F0-9]{64}', env['FORGE_WINDOWS_SHA256']), 'Invalid Windows SHA-256'
+          headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + env['GH_TOKEN'], 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'IronHandsForge-Linux-CI'}
+          def get(path):
+              request = urllib.request.Request('https://api.github.com/repos/' + env['GITHUB_REPOSITORY'] + path, headers=headers)
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+          release = get('/releases/' + env['FORGE_RELEASE_ID'])
+          assert release['draft'] is True, 'CI only adds tested files to a draft release; it never publishes one'
+          assert release['tag_name'] == 'v' + env['FORGE_RELEASE_VERSION'], 'Wrong draft version'
+          target = release['target_commitish']
+          resolved_commit = target if re.fullmatch(r'[a-fA-F0-9]{40}', target) else get('/commits/' + urllib.parse.quote(target, safe=''))['sha']
+          assert resolved_commit.lower() == env['GITHUB_SHA'].lower(), 'Draft release and CI source commit differ'
+          asset = next((item for item in release['assets'] if str(item['id']) == env['FORGE_WINDOWS_ASSET_ID']), None)
+          name = 'IronHandsForge-' + env['FORGE_RELEASE_VERSION'] + '-win-x64.zip'
+          assert asset and asset['name'] == name and asset['state'] == 'uploaded', 'Windows asset does not belong to the expected draft release'
+          checksum = next((item for item in release['assets'] if item['name'] == name + '.sha256'), None)
+          assert checksum and checksum['state'] == 'uploaded', 'The verified Windows checksum asset is missing'
+          provenance = {'schema': 'forge-linux-release-provenance-v1', 'releaseId': release['id'], 'releaseTag': release['tag_name'], 'repository': env['GITHUB_REPOSITORY'], 'sourceCommit': env['GITHUB_SHA'], 'windowsAssetId': asset['id'], 'windowsAssetName': name, 'windowsAssetBytes': asset['size'], 'windowsArchiveSHA256': env['FORGE_WINDOWS_SHA256'].lower(), 'windowsChecksumAssetId': checksum['id'], 'githubRunId': env['GITHUB_RUN_ID'], 'githubRunUrl': env['GITHUB_SERVER_URL'] + '/' + env['GITHUB_REPOSITORY'] + '/actions/runs/' + env['GITHUB_RUN_ID'], 'draftOnly': True}
+          (pathlib.Path(env['RUNNER_TEMP']) / 'forge-linux-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
+          print('Draft release and Windows asset provenance verified')
+          PY
+          mkdir -p "$RUNNER_TEMP/forge-windows-source"
+          name="IronHandsForge-${FORGE_RELEASE_VERSION}-win-x64.zip"
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets"
+          checksum_id="$(python3 -c 'import json,os,pathlib; print(json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-linux-provenance.json").read_text())["windowsChecksumAssetId"])')"
+          curl --fail --location --retry 3 --silent --show-error --header "Authorization: Bearer $GH_TOKEN" --header 'Accept: application/octet-stream' --header 'X-GitHub-Api-Version: 2022-11-28' --output "$RUNNER_TEMP/forge-windows-source/$name" "$api/$FORGE_WINDOWS_ASSET_ID"
+          curl --fail --location --retry 3 --silent --show-error --header "Authorization: Bearer $GH_TOKEN" --header 'Accept: application/octet-stream' --header 'X-GitHub-Api-Version: 2022-11-28' --output "$RUNNER_TEMP/forge-windows-source/$name.sha256" "$api/$checksum_id"
+
+      - name: Extract only the 119 verified Windows resource payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, stat, zipfile
+          env = os.environ
+          temporary = pathlib.Path(env['RUNNER_TEMP']).resolve()
+          name = 'IronHandsForge-' + env['FORGE_RELEASE_VERSION'] + '-win-x64.zip'
+          archive = temporary / 'forge-windows-source' / name
+          expected = env['FORGE_WINDOWS_SHA256'].lower()
+          with archive.open('rb') as stream:
+              actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+          assert actual == expected, 'Downloaded Windows archive checksum mismatch'
+          checksum = pathlib.Path(str(archive) + '.sha256').read_text(encoding='utf-8-sig').split()
+          assert checksum[0].lower() == expected and checksum[-1] == name, 'Windows checksum asset mismatch'
+          prefix = 'IronHandsForge-' + env['FORGE_RELEASE_VERSION'] + '-win-x64/data/'
+          destination = temporary / 'forge-included-data'
+          destination.mkdir()
+          with zipfile.ZipFile(archive) as source:
+              manifest_bytes = source.read(prefix + 'bundle-manifest.json')
+              manifest = json.loads(manifest_bytes.decode('utf-8-sig'))
+              assert manifest['schema'] == 'iron-hands-forge-resource-bundle' and manifest['version'] == 1
+              assert manifest['appVersion'] == env['FORGE_RELEASE_VERSION']
+              assert manifest['counts']['classes'] == 7 and manifest['counts']['files'] == 119
+              assert manifest['customization']['astartes']['profiles'] == 3
+              assert len(manifest['files']) == 119
+              records = {item['path']: item for item in manifest['files']}
+              assert len(records) == 119, 'Duplicate resource paths'
+              expected_names = set(records) | {'bundle-manifest.json'}
+              payload = {item.filename[len(prefix):]: item for item in source.infolist() if item.filename.startswith(prefix) and not item.is_dir()}
+              assert set(payload) == expected_names, 'Windows archive includes missing or undeclared data files'
+              for relative, info in payload.items():
+                  path = pathlib.PurePosixPath(relative)
+                  assert path.parts and not path.is_absolute() and '..' not in path.parts and '\\' not in relative and ':' not in relative and '\x00' not in relative
+                  assert not (info.flag_bits & 1) and not stat.S_ISLNK(info.external_attr >> 16)
+                  target = destination.joinpath(*path.parts)
+                  assert target.resolve().is_relative_to(destination.resolve())
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  digest = hashlib.sha256()
+                  with source.open(info) as reader, target.open('xb') as writer:
+                      while chunk := reader.read(4 * 1024 * 1024):
+                          writer.write(chunk)
+                          digest.update(chunk)
+                  if relative in records:
+                      record = records[relative]
+                      assert target.stat().st_size == record['bytes'] and re.fullmatch(r'[a-f0-9]{64}', record['sha256'])
+                      assert digest.hexdigest() == record['sha256'], 'Resource payload checksum mismatch: ' + relative
+          (temporary / 'forge-source-bundle-manifest.json').write_bytes(manifest_bytes)
+          provenance_file = temporary / 'forge-linux-provenance.json'
+          provenance = json.loads(provenance_file.read_text())
+          provenance.update(sourceFilesExtracted=120, sourcePayloadFiles=119, nativeBodyFrames=7, astartesBodyFrames=3, resourcePayloadBytes=sum(item['bytes'] for item in manifest['files']), sourceBundleManifestSHA256=hashlib.sha256(manifest_bytes).hexdigest(), modelsDownloadedDuringApplicationLaunch=False, leftBionicsReprepared=False)
+          provenance_file.write_text(json.dumps(provenance, indent=2) + '\n')
+          archive.unlink()
+          print('Exactly 119 signed payload files and their outer manifest extracted')
+          PY
+          echo "FORGE_DATA_ROOT=$RUNNER_TEMP/forge-included-data" >> "$GITHUB_ENV"
 
       - name: Verify and install official build-time Node runtime
         shell: bash
@@ -64,116 +176,39 @@ jobs:
           test "$(node -p 'process.platform + ":" + process.arch')" = linux:x64
           test "$(node -p 'require("./package.json").version')" = "$FORGE_RELEASE_VERSION"
           node scripts/vendor-three.mjs
+          node scripts/bundle-resources.mjs --verify "$FORGE_DATA_ROOT"
           python3 -m pip install --disable-pip-version-check numpy==2.3.4
           npm test 2>&1 | tee "$RUNNER_TEMP/forge-node-tests.log"
           python3 -m unittest discover -s tests -p '*_test.py' 2>&1 | tee "$RUNNER_TEMP/forge-python-tests.log"
 
-      - name: Fetch pinned v0.3.0 source resources independently of the new Windows release
+      - name: Build the native Linux tar.gz and prove Windows resource identity
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/forge-windows-source"
-          name="IronHandsForge-${FORGE_SOURCE_VERSION}-win-x64.zip"
-          url="https://github.com/MrProhaMaster/iron-hands-forge/releases/download/v${FORGE_SOURCE_VERSION}/$name"
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/forge-windows-source/$name" "$url"
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/forge-windows-source/$name.sha256" "$url.sha256"
+          node scripts/build-linux.mjs --data-root "$RUNNER_TEMP/forge-included-data" --out "$GITHUB_WORKSPACE/dist/IronHandsForge-${FORGE_RELEASE_VERSION}-linux-x64" --node-binary "$RUNNER_TEMP/forge-node/bin/node" | tee "$RUNNER_TEMP/forge-build-linux.log"
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil, zipfile
-          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
-          version = os.environ['FORGE_SOURCE_VERSION']
-          filename = f'IronHandsForge-{version}-win-x64.zip'
-          archive = temporary / 'forge-windows-source' / filename
-          expected = os.environ['FORGE_WINDOWS_SHA256'].lower()
-          checksum = pathlib.Path(str(archive) + '.sha256').read_text(encoding='utf-8-sig').split()
-          assert checksum[0].lower() == expected and checksum[-1] == filename, 'Published Windows checksum differs from the pinned verified release'
-          actual = hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()
-          assert actual == expected, 'Windows release download checksum mismatch'
-          prefix = f'IronHandsForge-{version}-win-x64/data/'
-          destination = temporary / 'forge-included-data'
-          destination.mkdir()
-          count = 0
-          with zipfile.ZipFile(archive) as source:
-              for info in source.infolist():
-                  if not info.filename.startswith(prefix) or info.is_dir():
-                      continue
-                  relative = pathlib.PurePosixPath(info.filename[len(prefix):])
-                  assert relative.parts and not relative.is_absolute() and '..' not in relative.parts
-                  target = destination.joinpath(*relative.parts)
-                  target.parent.mkdir(parents=True, exist_ok=True)
-                  with source.open(info) as reader, target.open('xb') as writer:
-                      shutil.copyfileobj(reader, writer, 4 * 1024 * 1024)
-                  count += 1
-          manifest = json.loads((destination / 'bundle-manifest.json').read_text())
-          assert count == 23 and manifest['counts']['files'] == 22 and manifest['counts']['classes'] == 7
-          provenance = {'sourceWindowsRelease': f'https://github.com/MrProhaMaster/iron-hands-forge/releases/tag/v{version}', 'targetReleaseVersion': os.environ['FORGE_RELEASE_VERSION'], 'windowsArchiveSHA256': actual, 'nodeArchiveSHA256': os.environ['FORGE_NODE_ARCHIVE_SHA256'], 'sourceFilesExtracted': count, 'sourcePayloadFiles': manifest['counts']['files'], 'modelsDownloadedDuringApplicationLaunch': False}
-          (temporary / 'forge-linux-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
-          archive.unlink()
-          PY
-          node scripts/bundle-resources.mjs --verify "$RUNNER_TEMP/forge-included-data"
-
-      - name: Generate the seven left bionic arms on Ubuntu and verify the 30-file runtime library
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/prepare_left_bionics.py --data-root "$RUNNER_TEMP/forge-included-data" | tee "$RUNNER_TEMP/forge-prepare-left-bionics.log"
-          node scripts/bundle-resources.mjs --data-root "$RUNNER_TEMP/forge-included-data" --out "$RUNNER_TEMP/forge-generated-data"
-          node scripts/bundle-resources.mjs --verify "$RUNNER_TEMP/forge-generated-data"
-          python3 - <<'PY'
-          import hashlib, json, os, pathlib, shutil
-          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
-          original = json.loads((temporary / 'forge-included-data/bundle-manifest.json').read_text())
-          generated = json.loads((temporary / 'forge-generated-data/bundle-manifest.json').read_text())
-          assert original['counts']['files'] == 22
-          assert generated['appVersion'] == os.environ['FORGE_RELEASE_VERSION']
-          assert generated['counts']['classes'] == 7 and generated['counts']['files'] == 30
-          payload = {entry['path']: entry for entry in generated['files']}
-          for entry in original['files']:
-              assert payload[entry['path']] == entry, 'An original verified source resource changed: ' + entry['path']
-          directory = temporary / 'forge-generated-data/assets/characters/SM2-left-bionic/native-v1'
-          manifest_file = directory / 'manifest.json'
-          left = json.loads(manifest_file.read_text())
-          assert left['schema'] == 'iron-hands-forge-left-bionic-library' and left['version'] == 1
-          assert len(left['classes']) == 7 and len({row['classId'] for row in left['classes']}) == 7
-          for row in left['classes']:
-              model = temporary / 'forge-generated-data' / row['relativePath']
-              assert model.stat().st_size == row['bytes']
-              with model.open('rb') as stream:
-                  assert hashlib.file_digest(stream, 'sha256').hexdigest() == row['sha256']
-              assert row['helperNodes'] == (0 if row['classId'] == 'PVE_PVP_TANK' else 18)
-              assert row['weightedHelperJoints'] == (0 if row['classId'] == 'PVE_PVP_TANK' else 17)
+          import json, os, pathlib, shutil
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP']).resolve()
+          original = json.loads((temporary / 'forge-source-bundle-manifest.json').read_text())
+          output = pathlib.Path(os.environ['GITHUB_WORKSPACE']) / 'dist' / ('IronHandsForge-' + os.environ['FORGE_RELEASE_VERSION'] + '-linux-x64')
+          packaged = json.loads((output / 'data/bundle-manifest.json').read_text())
+          assert packaged['appVersion'] == os.environ['FORGE_RELEASE_VERSION']
+          assert packaged['counts']['files'] == 119 and packaged['counts']['classes'] == 7
+          assert packaged['files'] == original['files'], 'Linux must preserve every Windows resource byte/hash'
+          source = temporary / 'forge-included-data'
+          assert not source.is_symlink() and source.resolve().parent == temporary and source.name == 'forge-included-data'
+          shutil.rmtree(source)
+          # The tested archive is retained. QA extracts and relocates it without duplicating source data.
+          workspace_dist = pathlib.Path(os.environ['GITHUB_WORKSPACE']).resolve() / 'dist'
+          assert not output.is_symlink() and output.resolve().parent == workspace_dist and output.name == 'IronHandsForge-' + os.environ['FORGE_RELEASE_VERSION'] + '-linux-x64'
+          shutil.rmtree(output)
           provenance_file = temporary / 'forge-linux-provenance.json'
           provenance = json.loads(provenance_file.read_text())
-          provenance.update(leftBionicsGeneratedNatively=True, leftBionicClasses=7, targetPayloadFiles=30,
-                            leftManifestSHA256=hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
-                            sourceExtractionRemovedAfterVerifiedCopy=True)
+          provenance.update(nodeArchiveSHA256=os.environ['FORGE_NODE_ARCHIVE_SHA256'], nativeLinuxBuild=True, targetPayloadFiles=119, sourceExtractionRemovedAfterVerifiedCopy=True, originalBuildDirectoryRemovedAfterArchiveVerification=True)
           provenance_file.write_text(json.dumps(provenance, indent=2) + '\n')
-          source_directory = temporary / 'forge-included-data'
-          preparation = source_directory / 'assets/characters/SM2-left-bionic/native-v1/provenance/preparation-report.json'
-          shutil.copy2(preparation, temporary / 'forge-left-bionic-preparation-report.json')
-          # All 22 original files were verified in the generated copy above.
-          # Remove only this job's now-redundant extraction to save runner disk.
-          assert not source_directory.is_symlink()
-          resolved_source = source_directory.resolve()
-          assert resolved_source.parent == temporary.resolve() and resolved_source.name == 'forge-included-data'
-          assert (temporary / 'forge-generated-data').resolve() != resolved_source
-          shutil.rmtree(resolved_source)
           PY
 
-      - name: Build Linux tar.gz using the verified native runtime and included data
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/build-linux.mjs --data-root "$RUNNER_TEMP/forge-generated-data" --out "$GITHUB_WORKSPACE/dist/IronHandsForge-${FORGE_RELEASE_VERSION}-linux-x64" --node-binary "$RUNNER_TEMP/forge-node/bin/node" | tee "$RUNNER_TEMP/forge-build-linux.log"
-          python3 - <<'PY'
-          import json, os, pathlib
-          source = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'forge-generated-data/bundle-manifest.json').read_text())
-          output = pathlib.Path('dist') / f"IronHandsForge-{os.environ['FORGE_RELEASE_VERSION']}-linux-x64" / 'data/bundle-manifest.json'
-          packaged = json.loads(output.read_text())
-          assert packaged['counts']['files'] == 30 and packaged['counts']['classes'] == 7
-          assert source['files'] == packaged['files'], 'Linux must preserve the 22 verified source files and eight generated left-bionic files'
-          PY
-
-      - name: Use the runner Chrome for offline browser acceptance
+      - name: Use runner Chrome for isolated offline browser acceptance
         shell: bash
         run: |
           set -euo pipefail
@@ -183,50 +218,99 @@ jobs:
           "$browser" --version
           echo "FORGE_BROWSER=$browser" >> "$GITHUB_ENV"
 
-      - name: Verify the actual Linux archive, lifecycle, offline customization and left bionic arms
+      - name: Verify actual tar.gz, launcher lifecycle, ten frames, heraldry and native bionic arms
         shell: bash
         run: |
           set -euo pipefail
           node tests/linux-distribution-qa.mjs --archive "$GITHUB_WORKSPACE/dist/IronHandsForge-${FORGE_RELEASE_VERSION}-linux-x64.tar.gz" --out "$RUNNER_TEMP/forge-linux-qa" --browser
 
-      - name: Collect archive, checksum and review evidence
+      - name: Add verified Linux files to the same draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, http.client, json, os, pathlib, urllib.parse, urllib.request
+          env = os.environ
+          temporary = pathlib.Path(env['RUNNER_TEMP'])
+          dist = pathlib.Path(env['GITHUB_WORKSPACE']) / 'dist'
+          name = 'IronHandsForge-' + env['FORGE_RELEASE_VERSION'] + '-linux-x64.tar.gz'
+          archive, checksum = dist / name, dist / (name + '.sha256')
+          qa = json.loads((temporary / 'forge-linux-qa/report.json').read_text())
+          browser = json.loads((temporary / 'forge-linux-qa/browser/report.json').read_text())
+          bionic = json.loads((temporary / 'forge-linux-qa/left-bionic-browser/report.json').read_text())
+          assert qa['passed'] and len(qa['classes']) == 10 and len(qa['motions']) == 40 and qa['resources']['files'] == 119
+          assert browser['passed'] and len(browser['classes']) == 10
+          assert browser['blockedRequests'] == [] and browser['httpFailures'] == [] and browser['pageErrors'] == []
+          assert bionic['passed'] and len(bionic['classes']) == 7 and bionic['browserErrors'] == [] and bionic['httpFailures'] == []
+          checksum_parts = checksum.read_text().split()
+          assert checksum_parts[0].lower() == qa['sha256'] and checksum_parts[-1] == name
+          headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + env['GH_TOKEN'], 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'IronHandsForge-Linux-CI'}
+          url = 'https://api.github.com/repos/' + env['GITHUB_REPOSITORY'] + '/releases/' + env['FORGE_RELEASE_ID']
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as response:
+              release = json.load(response)
+          assert release['draft'] is True and release['tag_name'] == 'v' + env['FORGE_RELEASE_VERSION'], 'Release must remain a draft while CI uploads files'
+          names = [name, name + '.sha256', 'IronHandsForge-' + env['FORGE_RELEASE_VERSION'] + '-linux-qa.json']
+          assert not any(item['name'] in names for item in release['assets']), 'Linux assets already exist; inspect the draft before retrying instead of overwriting them'
+          provenance = json.loads((temporary / 'forge-linux-provenance.json').read_text())
+          provenance.update(linuxArchiveName=name, linuxArchiveSHA256=qa['sha256'], linuxArchiveBytes=archive.stat().st_size, linuxBodyFrames=10, motionBindings=40, leftBionicClasses=7, linuxQaPassed=True)
+          manifest = temporary / names[2]
+          manifest.write_text(json.dumps(provenance, indent=2) + '\n')
+          upload_path = '/repos/' + env['GITHUB_REPOSITORY'] + '/releases/' + env['FORGE_RELEASE_ID'] + '/assets'
+          uploaded = []
+          class DigestReader:
+              def __init__(self, stream): self.stream, self.digest = stream, hashlib.sha256()
+              def read(self, size=-1):
+                  chunk = self.stream.read(size)
+                  self.digest.update(chunk)
+                  return chunk
+          for file, content_type, expected_digest in [(archive, 'application/gzip', qa['sha256']), (checksum, 'text/plain', hashlib.sha256(checksum.read_bytes()).hexdigest()), (manifest, 'application/json', hashlib.sha256(manifest.read_bytes()).hexdigest())]:
+              upload_headers = dict(headers)
+              upload_headers.update({'Content-Type': content_type, 'Content-Length': str(file.stat().st_size)})
+              connection = http.client.HTTPSConnection('uploads.github.com', timeout=1800, blocksize=4 * 1024 * 1024)
+              with file.open('rb') as stream:
+                  reader = DigestReader(stream)
+                  connection.request('POST', upload_path + '?' + urllib.parse.urlencode({'name': file.name}), body=reader, headers=upload_headers)
+                  response = connection.getresponse()
+                  payload = response.read(1024 * 1024)
+                  assert response.status == 201, 'Linux asset upload failed: HTTP ' + str(response.status) + ' ' + payload.decode(errors='replace')[:1500]
+                  assert reader.digest.hexdigest() == expected_digest, 'Uploaded byte stream checksum differs'
+                  asset = json.loads(payload)
+                  assert asset['name'] == file.name and asset['size'] == file.stat().st_size and asset['state'] == 'uploaded'
+                  uploaded.append({'id': asset['id'], 'name': asset['name'], 'bytes': asset['size'], 'sha256': expected_digest, 'url': asset['browser_download_url']})
+              connection.close()
+          provenance['uploadedAssets'] = uploaded
+          (temporary / 'forge-linux-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
+          print(json.dumps({'draftReleaseId': release['id'], 'published': False, 'sourceCommit': env['GITHUB_SHA'], 'uploadedAssets': uploaded}))
+          PY
+
+      - name: Collect small QA evidence and provenance
         if: always()
         shell: bash
         run: |
           python3 - <<'PY'
-          import os, pathlib, shutil
-          workspace = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          import json, os, pathlib, shutil
           temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
           artifact = temporary / 'forge-linux-ci-artifact'
           artifact.mkdir(parents=True, exist_ok=True)
-          stem = f"IronHandsForge-{os.environ['FORGE_RELEASE_VERSION']}-linux-x64.tar.gz"
-          for name in [stem, stem + '.sha256']:
-              source = workspace / 'dist' / name
-              if source.is_file():
-                  try:
-                      os.link(source, artifact / name)
-                  except OSError:
-                      shutil.copy2(source, artifact / name)
-          qa = artifact / 'qa'
-          qa.mkdir(exist_ok=True)
-          for source_name, target_name in [('forge-linux-provenance.json', 'provenance.json'), ('forge-node-tests.log', 'node-tests.log'), ('forge-python-tests.log', 'python-tests.log'), ('forge-prepare-left-bionics.log', 'prepare-left-bionics.log'), ('forge-build-linux.log', 'build-linux.log')]:
-              source = temporary / source_name
-              if source.is_file(): shutil.copy2(source, qa / target_name)
+          (artifact / 'ci-context.json').write_text(json.dumps({'sourceCommit': os.environ['GITHUB_SHA'], 'runId': os.environ['GITHUB_RUN_ID'], 'releaseId': os.environ['FORGE_RELEASE_ID'], 'version': os.environ['FORGE_RELEASE_VERSION']}, indent=2) + '\n')
+          for name in ['forge-linux-provenance.json', 'forge-node-tests.log', 'forge-python-tests.log', 'forge-build-linux.log', 'forge-source-bundle-manifest.json']:
+              file = temporary / name
+              if file.is_file(): shutil.copy2(file, artifact / name)
           source = temporary / 'forge-linux-qa'
           for pattern in ['report.json', 'lifecycle/*.log', 'browser/report.json', 'browser/*.png', 'left-bionic-browser/report.json', 'left-bionic-browser/*.png']:
               for file in source.glob(pattern):
-                  target = qa / file.relative_to(source)
+                  target = artifact / 'qa' / file.relative_to(source)
                   target.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(file, target)
-          preparation = temporary / 'forge-left-bionic-preparation-report.json'
-          if preparation.is_file(): shutil.copy2(preparation, qa / 'left-bionic-preparation-report.json')
           PY
 
-      - name: Upload Linux distribution and QA evidence for review
+      - name: Upload QA evidence for final publication review
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified official tag
         with:
-          name: IronHandsForge-0.4.0-linux-x64-ci
+          name: IronHandsForge-${{ env.FORGE_RELEASE_VERSION }}-linux-x64-qa
           path: ${{ runner.temp }}/forge-linux-ci-artifact/
           include-hidden-files: false
           compression-level: 0

@@ -1,6 +1,8 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const {loadIronHandsLibrary} = require('./iron-hands-library.cjs');
+const {loadAstartesLibrary} = require('./astartes-library.cjs');
 
 const SOURCE_DIRECTORY = 'assets/characters/SM2-retail-constructors/source-v5';
 const VALIDATIONS = ['transformValidation', 'restSkinValidation', 'weightPackingValidation', 'skinProfileWeldValidation'];
@@ -14,7 +16,7 @@ function fileInfo(file) {
   } catch { return null; }
 }
 
-// Only small metadata is parsed. Large model payloads are never read or hashed for a health request.
+// Core constructor GLBs use metadata/header checks only; optional Iron Hands payload hashes are cached per file revision.
 function readJSON(file, fallback = null) {
   const info = fileInfo(file);
   if (!info) { jsonCache.delete(file); return fallback; }
@@ -32,6 +34,41 @@ function containedFile(root, relative) {
       path.isAbsolute(relative) || path.win32.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) return null;
   const file = path.resolve(root, relative);
   return file.startsWith(root + path.sep) ? file : null;
+}
+
+
+const SERVO_DIRECTORY='assets/customization/servo-arm-v1';
+const SERVO_MANIFEST=SERVO_DIRECTORY+'/manifest.json';
+const SERVO_CHANNELS=['gun_01_jnt','gun_01_jnt_jiggle','gun_02_jnt','gun_jnt','hand_01_jnt','hand_01_jnt_jiggle','hand_02_jnt','hand_02_jnt_jiggle','hand_03_jnt','hand_03_jnt_jiggle','hand_04_jnt','hand_04_jnt_jiggle','hand_05_jnt','hand_05_jnt_jiggle','hand_06_jnt','hand_06_jnt_jiggle','hand_claw_01_jnt','hand_claw_01_jnt_jiggle','hand_claw_02_jnt','hand_claw_jnt','hand_drill_jnt','hand_index_01_jnt','hand_index_jnt','hand_jnt','hand_jnt_jiggle','hand_pinky_01_jnt','hand_pinky_jnt','hand_thumb_01_jnt','hand_thumb_jnt'];
+const SERVO_OPTIONS=['vanity_engineer_common_01','vanity_engineer_mastercrafted_01','vanity_engineer_artificer_01','vanity_engineer_artificer_02','vanity_engineer_relic_01','vanity_engineer_relic_02','vanity_engineer_prestige','vanity_engineer_champion_iron_hands'];
+/** Small optional profile inspection without importing Three.js into CJS health checks. */
+function inspectServoLibrary(dataRoot){
+  const root=path.resolve(dataRoot),directory=path.join(root,SERVO_DIRECTORY),manifestFile=path.join(root,SERVO_MANIFEST);
+  if(!fs.existsSync(manifestFile)){
+    if(fs.existsSync(directory))throw Error('Servo profile manifest is missing from its prepared directory');
+    return{ready:false,profile:null,files:[],manifestPath:SERVO_MANIFEST,revision:'absent'};
+  }
+  const realRoot=fs.realpathSync(root);
+  const regular=relative=>{
+    const file=containedFile(root,relative),info=file&&fileInfo(file);
+    if(!file||!info)throw Error('Servo profile resource is missing');
+    if(!fs.realpathSync(file).startsWith(realRoot+path.sep))throw Error('Servo profile resource link escapes DataRoot');
+    return file;
+  };
+  const manifestBytes=fs.readFileSync(regular(SERVO_MANIFEST)),manifest=JSON.parse(manifestBytes.toString('utf8').replace(/^\uFEFF/,''));
+  if(manifest.schema!=='iron-hands-forge-servo-library'||manifest.version!==1||manifest.profile!==SERVO_DIRECTORY+'/default-pose.json'||!Array.isArray(manifest.files)||manifest.files.length!==1)throw Error('Invalid servo profile resource manifest');
+  const record=manifest.files[0];
+  if(record.path!==manifest.profile||!Number.isSafeInteger(record.bytes)||record.bytes<1||record.bytes>131072||!/^[a-f0-9]{64}$/.test(record.sha256||''))throw Error('Invalid servo profile integrity record');
+  const payload=fs.readFileSync(regular(record.path));
+  if(payload.length!==record.bytes||require('node:crypto').createHash('sha256').update(payload).digest('hex')!==record.sha256)throw Error('Servo profile checksum mismatch');
+  const profile=JSON.parse(payload.toString('utf8').replace(/^\uFEFF/,''));
+  if(profile?.schema!=='iron-hands-forge-servo-startup-pose'||profile.version!==1||profile.policy!=='native-startup-pose-original-bind'||profile.source?.clip!=='tacticus_wpn0_idle_mech_arm_intercessor'||!/^[a-f0-9]{64}$/.test(profile.source?.sha256||'')||profile.source.frameIndex!==0||profile.source.retimed!==false)throw Error('Unsupported servo startup profile');
+  if(!Array.isArray(profile.channels)||profile.channels.length!==29||new Set(profile.channels.map(c=>c.name)).size!==29||SERVO_CHANNELS.some(name=>!profile.channels.some(c=>c.name===name)))throw Error('Servo profile must contain the verified 29 channels');
+  for(const c of profile.channels){
+    if(!Array.isArray(c.translation)||c.translation.length!==3||!Array.isArray(c.rotation)||c.rotation.length!==4||[...c.translation,...c.rotation].some(n=>typeof n!=='number'||!Number.isFinite(n))||Math.abs(Math.hypot(...c.rotation)-1)>1e-5)throw Error('Invalid servo startup TRS');
+  }
+  if(profile.compatibility?.sourceClassId!=='PVE_PVP_ENGINEER'||profile.compatibility.slotId!=='VANITY_3'||!Array.isArray(profile.compatibility.optionIds)||!profile.compatibility.optionIds.length||profile.compatibility.optionIds.some(id=>!SERVO_OPTIONS.includes(id)))throw Error('Unverified servo profile variant policy');
+  return{ready:true,profile,files:manifest.files,manifestPath:SERVO_MANIFEST,revision:require('node:crypto').createHash('sha256').update(manifestBytes).update(payload).digest('hex')};
 }
 
 function validGLB(file) {
@@ -80,6 +117,24 @@ function inspectResourceLibrary(dataRoot, motionBindings = {}) {
   }
   const availableAssets = new Set(assets.map(asset => asset.asset));
   const readyClasses = classes.filter(c => c.available && availableAssets.has(c.tpl));
+  let ironHands;
+  try { ironHands = loadIronHandsLibrary(dataRoot); }
+  catch (error) {
+    ironHands = {ready: false, classes: [], decals: [], textures: {}};
+    issues.push('The Iron Hands customization library is incomplete or corrupt: ' + error.message);
+  }
+  let servo;
+  try { servo = inspectServoLibrary(dataRoot); }
+  catch (error) {
+    servo = {ready: false};
+    issues.push('The servo startup library is incomplete or corrupt: ' + error.message);
+  }
+  let astartes;
+  try { astartes = loadAstartesLibrary(dataRoot); }
+  catch (error) {
+    astartes = {ready:false,profiles:[],models:[],options:[]};
+    issues.push('The Astartes customization library is incomplete or corrupt: ' + error.message);
+  }
   const configured = issues.length === 0 && readyClasses.length > 0;
 
   const requiredClips = new Set();
@@ -133,7 +188,7 @@ function inspectResourceLibrary(dataRoot, motionBindings = {}) {
   // A legacy partial library may still supply useful static armour even without every preview clip.
   const resourcesReady = configured && issues.length === 0 && bundleReady &&
     (bundled ? missing.size === 0 : [...requiredClips, 'assets/animations/motion-manifest.json'].every(relative => !missing.has(relative)));
-  return {dataRoot, armor, manifest, assets, configured, resourcesReady, bundled,
+  return {dataRoot, armor, manifest, assets, configured, resourcesReady, bundled, ironHandsReady: ironHands.ready, servoPoseReady: servo.ready, astartesReady: astartes.ready, profileClassIds: astartes.profiles.map(p=>p.id),
     classIds: readyClasses.map(c => c.id), missingFiles: [...missing], issues};
 }
 
@@ -152,4 +207,4 @@ function resolveDataRoot({appRoot, stateRoot, dataRoot, motionBindings = {}}) {
   return bundledRoot;
 }
 
-module.exports = {inspectResourceLibrary, resolveDataRoot, readJSON};
+module.exports = {inspectResourceLibrary, resolveDataRoot, readJSON, inspectServoLibrary, SERVO_DIRECTORY, SERVO_MANIFEST};

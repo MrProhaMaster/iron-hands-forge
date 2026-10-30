@@ -2,6 +2,9 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process'),{pathToFileURL}=require('node:url');
 const {inspectResourceLibrary,resolveDataRoot}=require('../shared/resource-library.cjs');
 const {loadBionicLibrary,loadBionicClass,augmentBionicRegistry}=require('../shared/left-bionic.cjs');
+const {loadIronHandsLibrary,augmentIronHandsRegistry}=require('../shared/iron-hands-library.cjs');
+const {migrateSingleWorkspace}=require('../shared/single-workspace.cjs');
+const {loadAstartesLibrary,augmentAstartesRegistry}=require('../shared/astartes-library.cjs');
 const APP_ROOT=path.resolve(__dirname,'..'),UI=__dirname,VERSION=JSON.parse(fs.readFileSync(path.join(APP_ROOT,'package.json'))).version;
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.glb':'model/gltf-binary','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml','.dds':'image/vnd-ms.dds'};
 const read=(file,fallback={})=>{try{return JSON.parse(fs.readFileSync(file,'utf8'))}catch{return fallback}};
@@ -12,6 +15,8 @@ async function body(req){let size=0;const chunks=[];for await(const chunk of req
 let motionPolicyPromise;const motionPolicy=()=>motionPolicyPromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/motion-policy.mjs')).href);
 let codecPromise;const codec=()=>codecPromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/recipe-codec.mjs')).href);
 let bionicResourcesPromise;const bionicResources=()=>bionicResourcesPromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/bionic-resources.mjs')).href);
+let servoPolicyPromise;const servoPolicy=()=>servoPolicyPromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/servo-arm.mjs')).href);
+let customizationPromise;const customizationCatalog=()=>customizationPromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/customization-catalog.mjs')).href);
 function createForgeServer(options={}){
  const stateRoot=path.resolve(APP_ROOT,options.stateRoot||'state');fs.mkdirSync(stateRoot,{recursive:true});
  const motionBindings=read(path.join(APP_ROOT,'shared/motion-bindings.json'));
@@ -20,7 +25,8 @@ function createForgeServer(options={}){
  const resources=()=>inspectResourceLibrary(dataRoot,motionBindings);
  const dataSource=()=>dataRoot===bundledDataRoot?'bundled':'custom';
  const jobs=new Map(),children=new Set(),buildTool=options.buildTool||path.join(APP_ROOT,'tools/build_from_recipe.mjs');let activeJob=null;
- function catalog(){const library=resources(),bionic=loadBionicLibrary(dataRoot),armor=augmentBionicRegistry(library.armor,bionic),m=library.manifest,assets=library.assets.map(a=>({...a,raw:undefined,metadata:undefined,sourceVersion:5,assetRevision:(()=>{try{const s=fs.statSync(path.join(dataRoot,'assets/characters/SM2-retail-constructors/source-v5',a.asset+'.glb'));return s.size+':'+s.mtimeMs+'|'+(bionic.classes.find(c=>c.asset===a.asset)?.revision||'native')}catch{return 'missing'}})()}));const semantic=(armor.classes||[]).map(c=>({id:c.id,slots:c.slots.map(s=>({id:s.id,options:s.options.map(o=>o.id).sort()})).sort((a,b)=>a.id.localeCompare(b.id))})).sort((a,b)=>a.id.localeCompare(b.id));return{native:{parts:[]},armor,manifest:{...m,game:undefined,output:undefined,assets},configured:library.configured,dataRoot,dataSource:dataSource(),resourceStatus:{ready:library.resourcesReady,bundled:library.bundled,missingFiles:library.missingFiles,issues:library.issues},motionBindings,motionRevision:(()=>{try{return String(fs.statSync(path.join(dataRoot,'assets/animations/motion-manifest.json')).mtimeMs)}catch{return 'legacy'}})(),registryFingerprint:crypto.createHash('sha256').update(JSON.stringify(semantic)).digest('hex'),gameBuild:String(m.gameBuild||armor.gameBuild||'unknown')}}
+ async function catalog(){const {augmentCustomizationRegistry}=await customizationCatalog(),{loadServoPose}=await servoPolicy();const servo=loadServoPose(dataRoot);const library=resources(),bionic=loadBionicLibrary(dataRoot),iron=loadIronHandsLibrary(dataRoot),astartes=loadAstartesLibrary(dataRoot),armor=augmentCustomizationRegistry(augmentAstartesRegistry(augmentIronHandsRegistry(augmentBionicRegistry(library.armor,bionic),iron),astartes)),m=library.manifest,assets=library.assets.map(a=>({...a,raw:undefined,metadata:undefined,sourceVersion:5,assetRevision:(()=>{try{const s=fs.statSync(path.join(dataRoot,'assets/characters/SM2-retail-constructors/source-v5',a.asset+'.glb'));return s.size+':'+s.mtimeMs+'|'+(bionic.classes.find(c=>c.asset===a.asset)?.revision||'native')}catch{return 'missing'}})()}));const semantic=(armor.classes||[]).map(c=>({id:c.id,slots:c.slots.map(s=>({id:s.id,options:s.options.map(o=>o.id).sort()})).sort((a,b)=>a.id.localeCompare(b.id))})).sort((a,b)=>a.id.localeCompare(b.id));return{native:{parts:[]},armor,manifest:{...m,game:undefined,output:undefined,assets},configured:library.configured,dataRoot,dataSource:dataSource(),resourceStatus:{ready:library.resourcesReady,bundled:library.bundled,missingFiles:library.missingFiles,issues:library.issues},motionBindings,motionRevision:(()=>{try{return String(fs.statSync(path.join(dataRoot,'assets/animations/motion-manifest.json')).mtimeMs)}catch{return 'legacy'}})(),registryFingerprint:crypto.createHash('sha256').update(JSON.stringify(semantic)).digest('hex'),gameBuild:String(m.gameBuild||armor.gameBuild||'unknown'),customization:{version:1,enabled:true,crossClass:true,singleWorkspace:true},cosmeticsRevision:iron.revision+'|'+servo.revision+'|'+astartes.revision,astartes:{ready:astartes.ready,revision:astartes.revision,profileIds:astartes.profiles.map(p=>p.id),optionCount:astartes.options.length,unavailableCount:astartes.unavailableOptions?.length||0,modelCount:astartes.models.length},servoPose:{ready:servo.ready,revision:servo.revision},cosmetics:{ready:iron.ready,decals:iron.decals,colors:iron.colors,armorTags:iron.armorTags}}}
+ let previewServicePromise;const previews=()=>previewServicePromise??=import(pathToFileURL(path.join(APP_ROOT,'shared/studio-preview.mjs')).href).then(m=>m.createStudioPreview({getCatalog:catalog,getDataRoot:()=>dataRoot,stateRoot}));
  const send=(res,status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value))};
  const server=http.createServer(async(req,res)=>{
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');res.setHeader('X-Iron-Hands-Forge',VERSION);
@@ -30,7 +36,9 @@ function createForgeServer(options={}){
   try{
    const url=new URL(req.url,'http://127.0.0.1:'+port),p=url.pathname;
    if(p==='/api/health'&&req.method==='GET')return send(res,200,{appId:'iron-hands-forge',version:VERSION,appRoot:APP_ROOT,dataRoot,stateRoot,port,ready:true,resourcesReady:resources().resourcesReady,dataSource:dataSource()});
-   if(p==='/api/catalog'&&req.method==='GET')return send(res,200,catalog());
+   if(p==='/api/catalog'&&req.method==='GET')return send(res,200,await catalog());
+   if((p==='/api/preview'||p==='/api/part-preview')&&req.method==='POST'){const data=await body(req),service=await previews();return send(res,200,await service.prepare(data,{partOnly:p==='/api/part-preview'}));}
+   if(p==='/api/workspace/single'&&req.method==='POST'){await body(req);return send(res,200,migrateSingleWorkspace(stateRoot));}
    if(p==='/api/settings'&&req.method==='GET')return send(res,200,{dataRoot,stateRoot,configured:resources().configured,bundledDataRoot,bundledAvailable:inspectResourceLibrary(bundledDataRoot,motionBindings).resourcesReady,dataSource:dataSource()});
    if(p==='/api/settings'&&req.method==='POST'){
     const data=await body(req);let folder;
@@ -56,6 +64,8 @@ function createForgeServer(options={}){
    else if(p.startsWith('/web/')){base=path.join(UI,'web');relative=decodeURIComponent(p.slice(5))}
    else if(p.startsWith('/shared/')){base=path.join(APP_ROOT,'shared');relative=decodeURIComponent(p.slice(8))}
    else if(p.startsWith('/retail-v5/')){base=path.join(dataRoot,'assets/characters/SM2-retail-constructors/source-v5');relative=decodeURIComponent(p.slice(11))}
+   else if(p.startsWith('/customization/')){base=path.join(dataRoot,'assets/customization');relative=decodeURIComponent(p.slice(15))}
+   else if(p.startsWith('/previews/')){base=path.join(stateRoot,'previews');relative=decodeURIComponent(p.slice(10))}
    else if(p.startsWith('/exports/')){base=path.join(stateRoot,'exports');relative=decodeURIComponent(p.slice(9))}
    else return send(res,404,{error:'Not found'});
    if(!['GET','HEAD'].includes(req.method))return send(res,405,{error:'Method not allowed'});

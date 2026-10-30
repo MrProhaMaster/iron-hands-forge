@@ -1,68 +1,65 @@
-**Iron Hands Forge** is an offline Space Marine 2 armour configurator that transfers selected characters into Blender.
+# Iron Hands Forge
 
-**Windows x64 launch.** Download the ZIP from [Releases](https://github.com/MrProhaMaster/iron-hands-forge/releases), extract the whole folder, and run `IronHandsForge.exe`. Keep `app/`, `data/`, `runtime/`, `shared/`, `tools/`, and the .NET files beside it. The EXE needs the complete folder. It opens your browser; leave the launcher window open. Ctrl+C or closing that window stops its server. Node.js and the .NET Runtime are bundled.
+An offline Space Marine armour studio for assembling a character and transferring the same selected geometry into Blender.
 
-**Linux x64 launch.** Extract the separate Linux `.tar.gz` and run `./IronHandsForge` (or `./IronHandsForge.sh`). The native Linux Node.js runtime and the same complete armour library are included. Wine, .NET, system Node.js, and an installed game are not needed. A desktop browser is required. Settings and builds use XDG user directories. See [Linux launch, Blender transfer and packaging](docs/linux.md).
+## Launch the portable app
 
-**Ready on first launch.** The release includes the complete armour library for all seven supported classes, the paint catalogue, and the four shared walk/run clips. No installed game, resource preparation, Internet connection, Python, or SDK is needed to customise armour or prepare a GLB. Extract the whole ZIP before starting; do not run the EXE from inside the archive.
+Extract the complete Windows release and run **IronHandsForge.exe**. Keep its app, data, runtime, shared and tools directories together. The release includes Node.js, the .NET runtime, seven native body frames, Terminator, Chaplain and Apothecary templates, the Astartes accessories library, the left-bionic library, motion clips, Iron Hands heraldry and the verified servo startup profile. An installed game, Astartes mod, Internet connection, Python or SDK is not required to customise or export GLB.
 
-**Resources** is an optional setting for a different prepared library. **Use included armour** restores the packaged library. An unavailable saved library falls back to the included data automatically. Explicit `--data-root` paths remain authoritative and report missing resources rather than silently using another library. Developers can still prepare custom resources with [local preparation](docs/local-preparation.md).
+The launcher opens a local browser page. Keep its console running; closing it or pressing Ctrl+C stops only the server it created. Linux source/package support uses the same portable resource library; see [Linux](docs/linux.md).
 
-**Select and share.** Supported classes are Tactical, Assault, Vanguard, Bulwark, Heavy, Sniper, and Techmarine. Choose a character, class, armour parts, and colours. All seven classes support four verified shared game walk/run clips: unarmed and rifle-grip poses, at 0.5–2× speed. These are compatible previews on the original skeletons; the full game controller, IK, and secondary physics are not reproduced. Fixed facial channels retain the selected head's original proportions. Materials currently provide preview colours; game PBR materials and emblems need separate work.
+## Armour studio - v0.5.0
 
-**Bionic left arm — v0.4.0.** Open **Left gauntlet** and choose **Bionic left arm**. Each of the seven classes uses its own mirrored native arm, bound to that class's existing left-side skeleton. The choice is saved with the marine, IHF1 code and JSON recipe, and carried into GLB and Blender exports. Packaged builds include the seven-class library for offline use through the shared Windows/Linux resource pipeline. See [left bionic arms and local regeneration](docs/left-bionics.md).
+- **One active marine.** The former five-character draft is migrated to one marine after an immutable backup is written. Existing IHF1 codes remain readable. Importing an old squad opens its first marine; the original code is unchanged.
+- **Body frame and armour are independent.** Choose Tactical, Assault, Vanguard, Bulwark, Heavy, Sniper or Techmarine as the target rig. Compatible, fully resolved parts from the other frames are listed in their ordinary armour sections, with their source class.
+- **Iron Hands parts appear in the normal lists.** Chapter armour, helmets, pauldrons, gauntlets, greaves, backpack, tabard and servo-arm are tagged and named. Use the Iron Hands filter to find them. There is no separate equip-set button.
+- **Game-style armour navigation.** Helm, Pauldrons, Breastplate, Wargear, Gauntlets and Greaves group the existing slot identities; Accessories keeps the additional mod slots available.
+- **Fixed Chapter and Company heraldry.** Chapter applies to the left pauldron. Company applies to the right, with all ten native Iron Hands clan-company emblems. Each side keeps its own three-colour palette. Sculpted or source-forbidden shoulders show their compatibility reason.
+- **Full accessory catalogue.** Helmet ornaments, laurels, hoods, faceplates, capes, heads, tabards and class equipment remain independent. Imported source choices are retained for later manual curation; unavailable source references are explicitly disabled.
+- **Terminator, Chaplain and Apothecary templates.** Their real mod constructors, rig and source outfit presets initialise the new Body Frame choices. Individual parts remain editable afterwards.
+- **Paint and finish.** Global armour, bionic metal, lenses, trim, cloth and beard colours; metallic armour and roughness; local paint overrides per armour slot. Bionic metal and trim colours are independent.
+- **Native heraldry.** Genuine chapter, clan and successor emblems use 44 local PNGs and the original curved, skinned carriers. Up to three colour channels are composited into an embedded PNG for portable GLB. A missing or forbidden carrier produces a clear error instead of a guessed projection.
+- **Folded servo-arm.** Eight verified Techmarine arm variants use the native SM2 startup pose. Source inverse bind matrices and tube lengths remain unchanged. Incompatible generic servo/tube channels are excluded from the shared walk/run preview and export.
+- **Same preview and export.** The local server creates selected-part GLBs for both the viewport and export. Donor parts are adapted to the target rest pose with their original four or eight skin influences and any required helper bones.
 
-Select **Share build** to open **Transfer build**:
+The mechanisms were studied against Astartes Overhaul Full 15.2. Forge implements its own local assembly policy; gameplay balance, perks, weapon damage and the game's controller are outside this model editor. See [customisation behaviour](docs/astartes-customization.md) and [Iron Hands resources](docs/iron-hands-cosmetics.md), and [accessories and body-frame templates](docs/astartes-accessories.md).
 
-1. Generate **Soldier code** or **Squad code**, then select **Copy**.
-2. On another computer, paste the complete `IHF1.…` code and select **Import**.
-3. **Save JSON** writes a recipe to `state/exports/`. **Prepare GLB** creates models and a report in `state/builds/`.
+## Save, share and export
 
-A code stores class, slot, and option IDs, colours, and supported motion. It contains no game models or local raw ObjectIDs. CRC32 detects accidental corruption. The receiving copy uses its included library; custom parts still require a compatible custom catalogue, and unavailable parts produce an error. A recipe can contain one character or a squad of up to 20. In the JSON format, `motion` is optional: omitting it exports a static model. The interface includes the selected motion for all seven supported classes. See [build codes and recipe examples](docs/build-codes.md) for the format and complete workflows.
+Use **Save marine** for the current workspace. Open **Transfer build** to copy a Soldier IHF1 code, import a code, save a JSON recipe, or prepare a GLB. Appearance, donor choices, emblems and the selected motion travel with the code. The receiving app needs a compatible included/custom resource library. Legacy recipes without the new optional appearance field remain supported.
 
-**Blender.** Import a generated GLB normally, or transfer a recipe with `tools/import_recipe_blender.py`. Replace the example paths with your own:
+The four existing walk/run and unarmed/rifle-grip clips retain 0.5-2x speed and their target-body timing. Rifle grip does not attach a weapon. Native full physics, foot IK and cloth simulation are not reproduced. Armour surface materials remain editable preview materials; the heraldry maps are actual embedded textures.
 
-```powershell
-& 'C:/Tools/Blender/blender.exe' 'E:/Scenes/base.blend' --background `
-  --python ./tools/import_recipe_blender.py -- `
-  --recipe 'E:/ForgeRecipes/squad.ihf.json' `
-  --data-root 'E:/ForgeData' --out 'E:/Scenes/squad.blend'
-```
+Import the resulting GLB normally in Blender, or use tools/import_recipe_blender.py with a recipe/code and a new output path. Existing scene objects and FPS are retained. See [build codes](docs/build-codes.md).
 
-Use `--code 'IHF1.…'` instead of `--recipe` to pass a code directly. The script adds a separate collection, preserves existing scene objects and FPS, and saves a new `.blend` plus an import report. Choose a new output filename; existing files are not overwritten.
+## Source development and packaging
 
-**Run from source.** Install Node.js 22+, then run these commands from the repository root:
+Node.js 22+ is required for source development. Run scripts/vendor-three.mjs and app/server.cjs. Provide a prepared --data-root or place the verified complete resource bundle in data. All runtime requests stay on loopback and prepared data is resolved locally.
 
-```powershell
-node scripts/vendor-three.mjs
-node app/server.cjs
-```
+Build Windows with scripts/build-windows.ps1, passing explicit -DotnetExe, -NodeExe, -DataRoot and a new -OutputDirectory. Then run src/launcher/package-release.ps1 with a new archive path. Resources are checksum-verified, paths are made portable, and private state/raw archives are excluded. The launcher and resource-selection behaviour are covered by tests.
 
-Open the [local application](http://127.0.0.1:8767). For source development, prepare a data library and pass `--data-root` to the server, or place a verified bundle in `data/`. The downloadable application already includes it.
+Preparing new resources is a developer operation, separate from normal use. See [local preparation](docs/local-preparation.md), tools/prepare_iron_hands_library.py and tools/prepare_servo_pose.mjs. The downloadable app already contains their verified outputs.
 
-To build the Windows folder distribution, use .NET SDK 8 and a local Node.js executable:
+## Validation
 
-```powershell
-./scripts/build-windows.ps1 `
-  -DotnetExe 'E:/Tools/dotnet/dotnet.exe' `
-  -NodeExe 'E:/Tools/node/node.exe' `
-  -DataRoot 'E:/ForgeData'
-```
+The 0.5.0 source passed the full Node suite (200 passed; five environment-dependent skips), 35 Python tests, and offline browser checks of all ten body-frame templates. The browser checks render each of the ten companies, preserve the chapter on the opposite shoulder, save and round-trip IHF1, export actual embedded-texture GLB, and verify mobile/desktop layout. Native Linux packaging has a separate Ubuntu workflow gate. Common/Prestige static/walk servo exports were compared numerically with Blender; maximum bounds difference was below 0.000003 m. These are separate gates, not a claim that every possible armour combination has been visually reviewed.
 
-The output is `dist/IronHandsForge-win-x64/`. The builder selects and copies only the seven-class runtime data, strips machine-specific paths, and creates a SHA-256 resource manifest. `src/launcher/package-release.ps1` verifies the complete bundle before creating the ZIP. User state, private configuration, raw game archives, and extraction tools are excluded. Use a new output folder for each release. See [offline distributions](docs/offline-distributions.md).
+Prepared models and resources remain outside Git. Do not force-add state, .build, data, runtime, dist, game archives or personal configurations. The project's own code is MIT; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
-**Validation.** Tests live in the source repository; the Windows ZIP omits test suites and private acceptance data. These results belong to separate checks:
+### Local 0.4.4 geometry repair
 
-- Node.js: 36 tests, including eight-influence loader, shader and CPU regression checks.
-- Python: 30 tests covering recipes, catalogues, motion and extended source profiles.
-- Source review: 10 mandatory tests, plus 2 optional checks when the local extractor/core is available.
-- 9 source constructors and 33.07 million vertices checked; 7 supported classes. The Techmarine upgrade preserves the other eight constructors.
-- Blender: 9 import checks, including preservation of scene objects and FPS, plus 2 additional non-Tactical import checks.
-- Techmarine: 569 source meshes / 3,774,248 vertices; both servo-arm variants checked across four loops. Three IHF1 code-to-Blender save/reopen checks passed, including 2x motion and a deliberate fifth-bone stress test. See [Techmarine support](docs/techmarine.md).
-- Windows launcher: 7 groups covering startup, data paths, instance reuse, and shutdown of its own server.
-- Motion: 24 class/clip combinations in default armour, plus 24 bare-headed combinations with preserved facial binds. Every frame, skin weights, limb lengths, and loop continuity were checked.
-- Left bionics: seven native-left bindings checked through all four existing preview clips, covering 952 source frames. Original body matrices, mirrored geometry attributes and numerical weights are preserved.
+Legacy Story armour now uses the source-bound retail geometry rather than identically named, split Astartes pieces. Modern split custom parts keep their mod source. Existing part IDs and saved IHF1 selections are preserved. Render eligibility uses native mesh flags and separate game/mod cloth bindings; a `_SIM` suffix alone no longer removes visible parts.
 
-Prepared armour models, catalogues, animation clips, and runtimes are included in the downloadable distribution through Releases, rather than Git source history. The original raw game archives, extractor binaries, personal rosters, and machine paths are not distributed. `state/`, `.build/`, `data/`, `runtime/`, `dist/`, and `forge.config.json` remain Git-ignored. Do not force-add private files or generated payloads to Git.
+Body Frame also includes the source-backed Terminator preset (Astartes 15.2), using its actual Tank constructor rig and PvE actor scale 1.15. The source PvP scale is 1.1; this template follows PvE. Native locomotion preview clips retain their original timing.
 
-The project's own code uses the MIT licence. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and game-resource scope, and [licenses/](licenses/) for full texts.
+### Part lists
+
+All armour and accessory lists show one card per part name, across imported sources. Case, whitespace and underscores do not create extra cards. Generic imported `Variant N` labels use the original part name so unrelated numbered records remain distinct. The selected source variant stays selected; all original IDs remain supported by saved IHF1 builds and exports. Source filters and searches still resolve their matching source variant before duplicate names are grouped.
+
+### Switching Body Frame
+
+Selecting a Body Frame loads that class's complete starting outfit, including empty optional slots. Custom per-part paint and emblems from the previous armour are cleared; global paint is retained for native frames. The prepared Astartes profiles retain their source outfit and authored starting palette. Importing a build code, restoring the saved marine or refreshing resources keeps the saved custom selections. Heavy starts without a backpack; imported jetpacks remain available for manual selection.
+
+### Local iteration versions
+
+Current local iteration: **0.4.6**. All subsequent builds remain in **0.4.x** until the user explicitly declares readiness for **0.5.0**. Historical local builds were renumbered to 0.4.1–0.4.5; see [version policy](docs/version-policy.md). Names containing guardsman, astropath, comissar or commissar are excluded from the active parts catalogue.

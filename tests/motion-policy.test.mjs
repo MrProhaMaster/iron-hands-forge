@@ -63,3 +63,21 @@ test('schema/request mismatch fails and returned policy cannot mutate source con
  binding.inheritedOnlyChannels.push('DO_NOT_MUTATE');
  assert.equal(config.inheritedOnlyChannels.length,length);
 });
+
+test('prepared Chaplain and Apothecary aliases retain exact native clips and original class identity',()=>{
+ for(const classId of ['PVE_PVP_CHARACTER_MOD_2','PVE_PVP_CHARACTER_MOD_3']){
+  assert.equal(classHasPreviewMotion(config,classId),true);
+  for(const gait of ['walk','run'])for(const stance of ['unarmed','armed']){
+   const a=resolveMotionBinding(config,classId,gait,stance),native=resolveMotionBinding(config,'PVE_PVP_SOLDIER',gait,stance);
+   assert.equal(a.classId,classId);assert.equal(a.asset,native.asset);assert.equal(a.output,native.output);assert.equal(a.clipId,native.clipId);
+   assert.equal(a.bodyFrameAlias.preserveSourceTiming,true);assert.equal(a.bodyFrameAlias.sourceModel,'astartes_cc_sm_constructor_soldier');
+  }
+ }
+});
+test('profile aliases cannot substitute an unverified rig or recurse through aliases',()=>{
+ const id='PVE_PVP_CHARACTER_MOD_2';
+ for(const mutation of [{status:'pending'},{asset:'different'},{baseClassId:'PVE_PVP_CHARACTER_MOD_3'},{profileId:'other'}]){
+  const broken=structuredClone(config);Object.assign(broken.aliases[id],mutation);
+  assert.equal(classHasPreviewMotion(broken,id),false);
+ }
+});

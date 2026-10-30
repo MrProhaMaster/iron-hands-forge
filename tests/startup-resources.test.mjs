@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {createAstartesFixture} from './fixtures/astartes-library.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,11 +65,15 @@ function library(root, {bundle = false} = {}) {
 }
 
 function serverFixture(base) {
-  for (const relative of ['app/server.cjs', 'shared/resource-library.cjs', 'shared/left-bionic.cjs', 'shared/motion-bindings.json', 'package.json']) {
+  for (const relative of ['app/server.cjs', 'package.json']) {
     const target = path.join(base, relative);
     fs.mkdirSync(path.dirname(target), {recursive: true});
     fs.copyFileSync(path.join(project, relative), target);
   }
+  // Match the distribution: the server ships with the complete shared runtime.
+  fs.cpSync(path.join(project, 'shared'), path.join(base, 'shared'), {recursive: true, errorOnExist: true});
+  // Servo profile loading imports the same local Three runtime shipped with the application.
+  fs.cpSync(path.join(project, 'app/web/vendor'), path.join(base, 'app/web/vendor'), {recursive: true, errorOnExist: true});
   return require(path.join(base, 'app/server.cjs')).createForgeServer;
 }
 
@@ -161,6 +166,8 @@ test('default server starts ready from its own included data and restores it aft
   await serve(create, {}, async url => {
     let health = await fetch(url + '/api/health').then(r => r.json());
     assert.equal(health.resourcesReady, true); assert.equal(health.dataRoot, data); assert.equal(health.dataSource, 'bundled');
+    const catalogResponse = await fetch(url + '/api/catalog'); assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json(); assert.equal(catalog.armor.classes[0].id, classId); assert.equal(catalog.customization.singleWorkspace, true);
     let response = await post(url + '/api/settings', {dataRoot: 'extra library'});
     assert.equal(response.status, 200);
     assert.equal((await response.json()).dataRoot, path.join(base, 'extra library'));
@@ -185,4 +192,52 @@ test('server health reports a missing included motion and refuses resetting to a
     assert.equal((await post(url + '/api/settings', {useBundled: true})).status, 400);
     assert.equal((await fetch(url + '/api/settings').then(r => r.json())).bundledAvailable, false);
   });
+});
+
+
+test('a present incomplete Iron Hands subset marks resources unavailable and appears in server health', async t => {
+  const base=workspace(t),data=library(path.join(base,'data'),{bundle:true});
+  const folder=path.join(data,'assets/customization/iron-hands-v1');fs.mkdirSync(folder,{recursive:true});
+  const inspected=inspectResourceLibrary(data,bindings);
+  assert.equal(inspected.configured,false);assert.equal(inspected.resourcesReady,false);assert.equal(inspected.ironHandsReady,false);
+  assert.ok(inspected.issues.some(issue=>/Iron Hands.*manifest is missing/.test(issue)));
+  const create=serverFixture(base);
+  await serve(create,{dataRoot:data},async url=>{
+    const health=await fetch(url+'/api/health').then(r=>r.json());assert.equal(health.resourcesReady,false);assert.equal(health.dataRoot,data);
+    assert.equal((await post(url+'/api/settings',{useBundled:true})).status,400);
+  });
+});
+
+test('a malformed present Iron Hands manifest cannot be treated as a working legacy custom library', t => {
+  const base=workspace(t),data=library(path.join(base,'custom'));
+  writeJSON(path.join(data,'assets/customization/iron-hands-v1/manifest.json'),{schema:'broken',version:1,files:[]});
+  const result=inspectResourceLibrary(data,bindings);
+  assert.equal(result.configured,false);assert.equal(result.resourcesReady,false);
+  assert.ok(result.issues.some(issue=>/Iron Hands.*Unsupported/.test(issue)));
+});
+
+
+
+
+test('legacy data without a servo profile stays ready but a partial present servo directory is rejected',t=>{
+  const base=workspace(t),data=library(path.join(base,'data'));
+  let result=inspectResourceLibrary(data,bindings);assert.equal(result.resourcesReady,true);assert.equal(result.servoPoseReady,false);
+  fs.mkdirSync(path.join(data,'assets/customization/servo-arm-v1'),{recursive:true});
+  result=inspectResourceLibrary(data,bindings);assert.equal(result.configured,false);assert.equal(result.resourcesReady,false);assert.equal(result.servoPoseReady,false);
+  assert.ok(result.issues.some(issue=>/servo.*manifest is missing/i.test(issue)));
+  writeJSON(path.join(data,'assets/customization/servo-arm-v1/manifest.json'),{schema:'invalid',version:1,files:[]});
+  result=inspectResourceLibrary(data,bindings);assert.equal(result.resourcesReady,false);assert.ok(result.issues.some(issue=>/Invalid servo profile/.test(issue)));
+});
+
+test('startup inspects optional Astartes profiles and rejects corrupt payloads',t=>{
+ const base=workspace(t),data=library(path.join(base,'data'),{bundle:false}),relative='assets/customization/astartes-v1';
+ const addon=createAstartesFixture(path.join(base,'astartes-input'));
+ fs.cpSync(path.join(base,'astartes-input',relative),path.join(data,relative),{recursive:true});
+ const ready=inspectResourceLibrary(data,bindings);
+ assert.equal(ready.resourcesReady,true);assert.equal(ready.astartesReady,true);
+ assert.deepEqual(ready.profileClassIds,[addon.profile.id]);
+ fs.appendFileSync(path.join(data,addon.model.glb),Buffer.from('corrupt'));
+ const broken=inspectResourceLibrary(data,bindings);
+ assert.equal(broken.resourcesReady,false);assert.equal(broken.astartesReady,false);
+ assert.ok(broken.issues.some(s=>/Astartes/.test(s)));
 });

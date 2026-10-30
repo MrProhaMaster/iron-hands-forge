@@ -53,7 +53,7 @@ def _color(value, path):
 
 def _soldier(value, index):
     path = f"soldiers[{index}]"
-    v = _object(value, ("id", "role", "classId", "selection", "paint"), ("motion",), path)
+    v = _object(value, ("id", "role", "classId", "selection", "paint"), ("motion", "appearance"), path)
     if type(v["selection"]) is not dict:
         _fail("INVALID_SCHEMA", f"{path}.selection must be an object")
     selection = {}
@@ -75,6 +75,8 @@ def _soldier(value, index):
                 or type(m["speedPct"]) is not int or not 50 <= m["speedPct"] <= 200 or m["inPlace"] is not True):
             _fail("INVALID_SCHEMA", f"{path}.motion is invalid")
         result["motion"] = {"gait": m["gait"], "stance": m["stance"], "speedPct": m["speedPct"], "inPlace": True}
+    if "appearance" in v:
+        result["appearance"] = normalize_appearance(v["appearance"])
     return result
 
 
@@ -97,7 +99,7 @@ def normalize_recipe(value):
 
 
 def _canonical(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return _canonical_json(value).encode("utf-8")
 
 
 def _base64url(data):
@@ -162,3 +164,156 @@ def decode_recipe(code):
     if _canonical(recipe) != raw:
         _fail("NON_CANONICAL_JSON", "Recipe JSON is not canonical")
     return recipe
+
+def _appearance_number(value, path):
+    if type(value) not in (int, float) or not __import__("math").isfinite(value) or not 0 <= value <= 1:
+        _fail("INVALID_SCHEMA", f"{path} must be a finite number in0..1")
+    return 0 if value == 0 else value
+
+
+def _appearance_finish(value, path, with_colors=False):
+    _object(value, (), ("armor", "trim", "cloth", "metallic", "roughness") if with_colors else ("metallic", "roughness"), path)
+    result = {}
+    for key, item in value.items():
+        if key == "metallic":
+            if type(item) is not bool:
+                _fail("INVALID_SCHEMA", f"{path}.metallic must be boolean")
+            result[key] = item
+        elif key == "roughness":
+            result[key] = _appearance_number(item, f"{path}.{key}")
+        else:
+            result[key] = _color(item, f"{path}.{key}")
+    return result
+
+
+def _appearance_map(value, path, limit, normalizer):
+    if type(value) is not dict or len(value) > limit:
+        _fail("INVALID_SCHEMA", f"{path} must be an object with at most{limit} entries")
+    result = {}
+    for key, item in value.items():
+        if type(key) is not str or key in _FORBIDDEN:
+            _fail("INVALID_SCHEMA", f"{path}: forbidden slot")
+        result[_id(key, path + " slot")] = normalizer(item, f"{path}.{key}")
+    return result
+
+
+def _appearance_decal(value, path):
+    _object(value, ("id", "color"), ("secondaryColor", "tertiaryColor"), path)
+    result = {"id": _id(value["id"], path + ".id"), "color": _color(value["color"], path + ".color")}
+    for key in ("secondaryColor", "tertiaryColor"):
+        if key in value:
+            result[key] = _color(value[key], f"{path}.{key}")
+    return result
+
+
+def normalize_appearance(value):
+    _object(value, (), ("colors", "finish", "parts", "decals"), "appearance")
+    result = {}
+    if "colors" in value:
+        colors = _object(value["colors"], (), ("trim", "cloth", "beard", "skin"), "appearance.colors")
+        result["colors"] = {key: _color(item, "appearance.colors." + key) for key, item in colors.items()}
+    if "finish" in value:
+        result["finish"] = _appearance_finish(value["finish"], "appearance.finish")
+    if "parts" in value:
+        result["parts"] = _appearance_map(value["parts"], "appearance.parts", 48, lambda item, path: _appearance_finish(item, path, True))
+    if "decals" in value:
+        result["decals"] = _appearance_map(value["decals"], "appearance.decals", 16, _appearance_decal)
+    return result
+
+
+def validate_appearance(value):
+    normalize_appearance(value)
+    return True
+
+
+def classify_material_role(material_name="", mesh_name=""):
+    lower = f"{material_name or ''} {mesh_name or ''}".lower()
+    rules = (
+        ("rubber", r"undersuit|rubber"),
+        ("beard", r"beard|moustache|mustache"),
+        ("cloth", r"tabard|cloth|seal|rope|hair"),
+        ("leather", r"bag|belt|leather"),
+        ("lenses", r"lenses|optic"),
+        ("glass", r"glass"),
+        ("metal", r"preview_steel|forge_left_bionic|ch_cato_hand_lod|ch_tech_marine_mecharm|soldier_arm_r_02|soldier_hand_l_01"),
+        ("skin", r"head_|skin|eye_"),
+    )
+    for role, pattern in rules:
+        if re.search(pattern, lower) and not (role == "skin" and "helmet" in lower):
+            return role
+    trim = r"(?:^|[^a-z])(?:trim|ornament|decoration|decor|silver|gold|bronze)(?:[^a-z]|$)"
+    material, mesh = str(material_name or "").lower(), str(mesh_name or "").lower()
+    if re.search(trim, material) or (not re.search(r"armor|armour|body|base|paint", material) and re.search(trim, mesh)):
+        return "trim"
+    return "armor"
+
+
+def resolve_appearance(soldier, slot, role="armor"):
+    paint = soldier.get("paint", {})
+    defaults = {
+        "armor": {"color": paint.get("armor", "#171B22"), "metallic": .12, "roughness": .48, "opacity": 1},
+        "trim": {"color": paint.get("metal", "#B3BDC9"), "metallic": .85, "roughness": .34, "opacity": 1},
+        "metal": {"color": paint.get("metal", "#B3BDC9"), "metallic": .85, "roughness": .34, "opacity": 1},
+        "lenses": {"color": paint.get("lenses", "#EE291C"), "metallic": .1, "roughness": .2, "opacity": 1, "emissive": paint.get("lenses", "#EE291C")},
+        "cloth": {"color": "#51483C", "metallic": 0, "roughness": .85, "opacity": 1},
+        "beard": {"color": "#51483C", "metallic": 0, "roughness": .85, "opacity": 1},
+        "skin": {"color": "#A18A79", "metallic": 0, "roughness": .7, "opacity": 1},
+        "leather": {"color": "#372E28", "metallic": 0, "roughness": .7, "opacity": 1},
+        "rubber": {"color": "#101215", "metallic": 0, "roughness": .78, "opacity": 1},
+        "glass": {"color": "#18232C", "metallic": .12, "roughness": .12, "opacity": .18},
+    }
+    result = dict(defaults.get(role, defaults["armor"]))
+    appearance = soldier.get("appearance", {})
+    part = appearance.get("parts", {}).get(slot, {})
+    color_role = role
+    if color_role in appearance.get("colors", {}):
+        result["color"] = appearance["colors"][color_role]
+    if color_role in part:
+        result["color"] = part[color_role]
+    if role in ("armor", "trim", "metal"):
+        for key in ("metallic", "roughness"):
+            value = part[key] if key in part else appearance.get("finish", {}).get(key) if role == "armor" else None
+            if value is not None:
+                result[key] = (1 if value else 0) if key == "metallic" else value
+    return result
+
+
+def _js_number(value):
+    """ECMAScript JSON decimal spelling for supported finite visual numbers."""
+    if value == 0:
+        return "0"
+    text = repr(value).lower()
+    if "e" not in text:
+        return text[:-2] if text.endswith(".0") else text
+    mantissa, exponent = text.split("e")
+    exp = int(exponent)
+    if -6 <= exp < 21:
+        negative = mantissa.startswith("-")
+        digits = mantissa.lstrip("-").replace(".", "")
+        point = 1 + exp
+        if point <= 0:
+            text = "0." + "0" * (-point) + digits
+        elif point >= len(digits):
+            text = digits + "0" * (point - len(digits))
+        else:
+            text = digits[:point] + "." + digits[point:]
+        return ("-" if negative else "") + text
+    return mantissa + "e" + ("+" if exp >= 0 else "-") + str(abs(exp))
+
+
+def _canonical_json(value):
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if type(value) is int:
+        return str(value)
+    if type(value) is float:
+        return _js_number(value)
+    if type(value) is list:
+        return "[" + ",".join(_canonical_json(item) for item in value) + "]"
+    if type(value) is dict:
+        return "{" + ",".join(json.dumps(key, ensure_ascii=False) + ":" + _canonical_json(value[key]) for key in sorted(value)) + "}"
+    return json.dumps(value, ensure_ascii=False)

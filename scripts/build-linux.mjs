@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {bundleResources, verifyBundle} from './bundle-resources.mjs';
+import releasePolicy from '../shared/release-policy.cjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const NODE_VERSION = 'v24.19.0';
@@ -56,6 +57,7 @@ function files(root, relative = '') {
 export function buildLinux({dataRoot, out, nodeBinary}) {
   if (process.platform !== 'linux' || process.arch !== 'x64') throw Error('Build the Linux x64 distribution on Linux x64, for example with the Linux release workflow.');
   if (!dataRoot || !out || !nodeBinary) throw Error('Usage: --data-root PATH --out DISTDIR --node-binary PATH');
+  releasePolicy.assertIterationVersion(JSON.parse(fs.readFileSync(path.join(ROOT,'package.json'),'utf8')).version);
   out = path.resolve(out); dataRoot = path.resolve(dataRoot); nodeBinary = path.resolve(nodeBinary);
   const relativeOutput = path.relative(ROOT, out);
   if (relativeOutput && !relativeOutput.startsWith('..' + path.sep) && !path.isAbsolute(relativeOutput) &&

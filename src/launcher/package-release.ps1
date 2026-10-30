@@ -19,6 +19,11 @@ $node=Join-Path $releaseRoot 'runtime/node.exe'
 foreach ($required in @($node,$bundleTool,$bundleManifestPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Offline release input is missing: $required" }
 }
+$releasePolicy=Join-Path $releaseRoot 'shared/release-policy.cjs'
+if (Test-Path -LiteralPath $releasePolicy -PathType Leaf) {
+    & $node -e 'const path=require("node:path"),root=process.argv[1];require(path.join(root,"shared/release-policy.cjs")).assertIterationVersion(require(path.join(root,"package.json")).version)' $releaseRoot
+    if ($LASTEXITCODE -ne 0) { throw 'The Forge local iteration version policy rejected this archive.' }
+}
 & $node $bundleTool --verify $bundleRoot
 if ($LASTEXITCODE -ne 0) { throw 'Bundled resources failed checksum/completeness verification.' }
 $bundle=Get-Content -LiteralPath $bundleManifestPath -Raw | ConvertFrom-Json

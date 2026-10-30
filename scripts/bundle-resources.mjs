@@ -4,6 +4,10 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 const {loadBionicLibrary,MANIFEST:LEFT_BIONIC_MANIFEST}=createRequire(import.meta.url)('../shared/left-bionic.cjs');
+const {loadIronHandsLibrary,MANIFEST:IRON_HANDS_MANIFEST,DIRECTORY:IRON_HANDS_DIRECTORY}=createRequire(import.meta.url)('../shared/iron-hands-library.cjs');
+
+const {loadAstartesLibrary,DIRECTORY:ASTARTES_DIRECTORY,MANIFEST:ASTARTES_MANIFEST}=createRequire(import.meta.url)('../shared/astartes-library.cjs');
+const {inspectServoLibrary,SERVO_DIRECTORY,SERVO_MANIFEST}=createRequire(import.meta.url)('../shared/resource-library.cjs');
 
 const APP_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const MODEL_ROOT='assets/characters/SM2-retail-constructors/source-v5';
@@ -73,6 +77,9 @@ function glbSummary(file){
   }finally{fs.closeSync(fd)}
 }
 
+function astartesSummary(library){return{ready:library.ready,profiles:library.profiles.length,options:library.options.length,models:library.models.length,unavailable:library.unavailableOptions?.length||0}}
+function ironHandsSummary(library){return{ready:library.ready,decals:library.decals.filter(d=>d.material!=='default').length,textures:Object.keys(library.textures).length,carrierLibraries:library.classes.length,nativeCarriers:library.classes.reduce((sum,c)=>sum+c.carriers.length,0)}}
+
 function inspectData(dataRoot){
   const root=path.resolve(dataRoot),bindings=readJSON(path.join(APP_ROOT,'shared/motion-bindings.json'));
   const registry=readJSON(regularFile(root,'production/roster/armor-options.json'));
@@ -81,12 +88,15 @@ function inspectData(dataRoot){
   const motion=readJSON(regularFile(root,'assets/animations/motion-manifest.json'));
   if(!Array.isArray(registry.classes)||!Array.isArray(source.assets))throw Error('Invalid armour catalogue or model manifest');
   const classes=registry.classes.filter(item=>item.available);
-  const bionics=loadBionicLibrary(root);
+  const bionics=loadBionicLibrary(root),ironHands=loadIronHandsLibrary(root),servo=inspectServoLibrary(root),astartes=loadAstartesLibrary(root);
   if(bionics.ready&&(bionics.classes.length!==classes.length||classes.some(c=>!bionics.classes.some(b=>b.classId===c.id&&b.asset===c.tpl))))throw Error('The left-bionic library must cover every supported class');
   const expected=Object.entries(bindings.classes).filter(([,binding])=>binding.status==='validated').map(([id])=>id).sort();
   if(!classes.length||new Set(classes.map(item=>item.id)).size!==classes.length||JSON.stringify(classes.map(item=>item.id).sort())!==JSON.stringify(expected))throw Error('The complete supported class catalogue is required');
   const files=new Set(['production/roster/armor-options.json','production/roster/armor-paints.json',MODEL_ROOT+'/manifest.json','assets/animations/motion-manifest.json']);
   if(bionics.ready){files.add(LEFT_BIONIC_MANIFEST);for(const record of bionics.classes)files.add(safeRelative(record.relativePath))}
+  if(ironHands.ready){files.add(IRON_HANDS_MANIFEST);for(const record of ironHands.files)files.add(safeRelative(record.path))}
+  if(servo.ready){files.add(servo.manifestPath);for(const record of servo.files)files.add(safeRelative(record.path))}
+  if(astartes.ready){files.add(ASTARTES_MANIFEST);for(const record of astartes.files)files.add(safeRelative(record.path));for(const model of astartes.models)assertPortableJSON(glbSummary(regularFile(root,model.glb)),model.id);}
   const assets=[],summaries=[];
   for(const entry of classes){
     if(!/^cc_sm_constructor_[a-z0-9_]+$/.test(entry.tpl)||bindings.classes[entry.id].asset!==entry.tpl)throw Error('Invalid class/model binding: '+entry.id);
@@ -106,7 +116,7 @@ function inspectData(dataRoot){
     if(!Array.isArray(clipData.times)||!clipData.times.length||!Array.isArray(clipData.channels)||!clipData.channels.length)throw Error('Invalid motion clip: '+relative);
     files.add(relative);
   }
-  return {root,registry,paints,source,motion,assets,classes:summaries,files:[...files].sort()};
+  return {root,registry,paints,source,motion,assets,ironHands,servo,astartes,classes:summaries,files:[...files].sort()};
 }
 
 function listFiles(root){
@@ -135,11 +145,14 @@ export function bundleResources(dataRoot,outputRoot){
     const input=regularFile(data.root,relative),target=path.join(out,relative);
     fs.mkdirSync(path.dirname(target),{recursive:true});
     if(relative.endsWith('.json')){
-      const value=jsonFiles.get(relative)??sanitizeJSON(readJSON(input),data.root);assertPortableJSON(value,relative);writeAtomic(target,jsonBytes(value));
+      const preserveCustomization=[IRON_HANDS_DIRECTORY,SERVO_DIRECTORY,ASTARTES_DIRECTORY].some(dir=>relative.startsWith(dir+'/'));
+      const value=preserveCustomization?readJSON(input):jsonFiles.get(relative)??sanitizeJSON(readJSON(input),data.root);assertPortableJSON(value,relative);
+      // The optional subset has its own hashes. Preserve its already-portable JSON bytes.
+      if(preserveCustomization)fs.copyFileSync(input,target,fs.constants.COPYFILE_EXCL);else writeAtomic(target,jsonBytes(value));
     }else fs.copyFileSync(input,target,fs.constants.COPYFILE_EXCL);
     entries.push({path:relative,bytes:fs.statSync(target).size,sha256:hashFile(target)});
   }
-  const manifest={schema:BUNDLE_SCHEMA,version:1,appVersion:readJSON(path.join(APP_ROOT,'package.json')).version,sourceGame:'Space Marine 2',gameBuild:String(data.registry.gameBuild||data.source.gameBuild||'unknown'),classIds:data.classes.map(item=>item.id),classes:data.classes,counts:{classes:data.classes.length,armorOptions:data.classes.reduce((sum,item)=>sum+item.optionCount,0),files:entries.length},files:entries,materialMode:'forge-preview-colours',createdAt:new Date().toISOString()};
+  const manifest={schema:BUNDLE_SCHEMA,version:1,appVersion:readJSON(path.join(APP_ROOT,'package.json')).version,sourceGame:'Space Marine 2',gameBuild:String(data.registry.gameBuild||data.source.gameBuild||'unknown'),classIds:data.classes.map(item=>item.id),classes:data.classes,counts:{classes:data.classes.length,armorOptions:data.classes.reduce((sum,item)=>sum+item.optionCount,0),files:entries.length},files:entries,customization:{astartes:astartesSummary(data.astartes),ironHands:ironHandsSummary(data.ironHands),servoPose:{ready:data.servo.ready,channels:data.servo.profile?.channels.length||0}},materialMode:'forge-preview-colours',createdAt:new Date().toISOString()};
   writeAtomic(path.join(out,BUNDLE_FILE),jsonBytes(manifest));
   return verifyBundle(out);
 }
@@ -159,8 +172,11 @@ export function verifyBundle(bundleRoot){
   }
   assertPortableJSON(manifest,BUNDLE_FILE);
   const data=inspectData(root);
+  if((data.astartes.ready||manifest.customization?.astartes!==undefined)&&JSON.stringify(manifest.customization?.astartes)!==JSON.stringify(astartesSummary(data.astartes)))throw Error('Resource bundle Astartes inventory does not match its runtime catalogue');
+  if((data.servo.ready||manifest.customization?.servoPose!==undefined)&&JSON.stringify(manifest.customization?.servoPose)!==JSON.stringify({ready:data.servo.ready,channels:data.servo.profile?.channels.length||0}))throw Error('Resource bundle servo inventory does not match its runtime profile');
+  if((data.ironHands.ready||manifest.customization?.ironHands!==undefined)&&JSON.stringify(manifest.customization?.ironHands)!==JSON.stringify(ironHandsSummary(data.ironHands)))throw Error('Resource bundle Iron Hands inventory does not match its runtime catalogue');
   if(JSON.stringify(paths.slice().sort())!==JSON.stringify(data.files)||JSON.stringify(manifest.classIds)!==JSON.stringify(data.classes.map(item=>item.id))||JSON.stringify(manifest.classes)!==JSON.stringify(data.classes)||manifest.counts?.classes!==data.classes.length||manifest.counts?.armorOptions!==data.classes.reduce((sum,item)=>sum+item.optionCount,0)||manifest.counts?.files!==paths.length)throw Error('Resource bundle inventory does not match its runtime catalogue');
-  return {ok:true,schema:manifest.schema,version:manifest.version,appVersion:manifest.appVersion,root,classIds:manifest.classIds,classes:manifest.counts.classes,armorOptions:manifest.counts.armorOptions,files:paths.length,bytes:manifest.files.reduce((sum,item)=>sum+item.bytes,0)};
+  return {ok:true,schema:manifest.schema,version:manifest.version,appVersion:manifest.appVersion,root,classIds:manifest.classIds,classes:manifest.counts.classes,armorOptions:manifest.counts.armorOptions,files:paths.length,astartes:astartesSummary(data.astartes),ironHands:ironHandsSummary(data.ironHands),servoPose:{ready:data.servo.ready,channels:data.servo.profile?.channels.length||0},bytes:manifest.files.reduce((sum,item)=>sum+item.bytes,0)};
 }
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
