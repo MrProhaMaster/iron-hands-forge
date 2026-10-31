@@ -42,7 +42,7 @@ Preparing new resources is a developer operation, separate from normal use. See 
 
 ## Validation
 
-The 0.5.0 source passed the full Node suite (217 passed; five environment-dependent skips), 39 Python tests, and offline browser checks of all ten body-frame templates. The browser checks render each of the ten companies, preserve the chapter on the opposite shoulder, save and round-trip IHF1, export actual embedded-texture GLB, and verify mobile/desktop layout. Native Linux packaging has a separate Ubuntu workflow gate. Common/Prestige static/walk servo exports were compared numerically with Blender; maximum bounds difference was below 0.000003 m. These are separate gates, not a claim that every possible armour combination has been visually reviewed.
+The 0.5.0 source passed the full Node suite, 39 Python tests, and offline browser checks of all ten body-frame templates. The browser checks render each of the ten companies, preserve the chapter on the opposite shoulder, save and round-trip IHF1, export actual embedded-texture GLB, and verify mobile/desktop layout. Native Linux packaging has a separate Ubuntu workflow gate. Common/Prestige static/walk servo exports were compared numerically with Blender; maximum bounds difference was below 0.000003 m. These are separate gates, not a claim that every possible armour combination has been visually reviewed.
 
 Prepared models and resources remain outside Git. Do not force-add state, .build, data, runtime, dist, game archives or personal configurations. The project's own code is MIT; see [third-party notices](THIRD_PARTY_NOTICES.md).
 

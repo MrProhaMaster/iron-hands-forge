@@ -71,6 +71,24 @@ function getHealth(port, timeout = 850) {
   });
 }
 
+async function waitForOwnedHealth(port, expected, {signal, timeout = 15000} = {}) {
+  const deadline = Date.now() + timeout;
+  // The first health request synchronously verifies the bundled models in this
+  // same process. Its cold work can outlast a short HTTP probe; later probes use
+  // the verified resource caches. Keep foreign-service probes short and retry
+  // only the server that this launcher has just bound itself.
+  do {
+    signal?.throwIfAborted();
+    const health = await getHealth(port, Math.min(850, Math.max(1, deadline - Date.now())));
+    signal?.throwIfAborted();
+    if (healthMatches(health, expected)) return health;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await delay(Math.min(100, remaining), undefined, {signal});
+  } while (Date.now() < deadline);
+  return null;
+}
+
 function lockAddress(appRoot) {
   const user = typeof process.getuid === 'function' ? String(process.getuid()) : os.userInfo().username;
   const key = crypto.createHash('sha256').update(user + '\0' + appRoot).digest('hex').slice(0, 40);
@@ -183,7 +201,7 @@ async function run(options, {appRoot = APP_ROOT, env = process.env, stdout = con
       }
       server = candidate;
       const closed = new Promise(resolve => server.once('close', resolve));
-      const health = await getHealth(port);
+      const health = await waitForOwnedHealth(port, expected, {signal: abort.signal});
       if (!healthMatches(health, expected)) throw Error('The server did not pass its application/root/version health check.');
       server.on('error', error => {console.error('Iron Hands Forge: ' + error.message); void stop();});
       await announce(port, health, false);
@@ -202,7 +220,7 @@ async function run(options, {appRoot = APP_ROOT, env = process.env, stdout = con
   }
 }
 
-module.exports = {parseOptions, resolvePaths, healthMatches, getHealth, lockAddress, acquireStartupLock, run};
+module.exports = {parseOptions, resolvePaths, healthMatches, getHealth, waitForOwnedHealth, lockAddress, acquireStartupLock, run};
 if (require.main === module) {
   (async () => {const options = parseOptions(process.argv.slice(2)); if (options.help) process.stdout.write(HELP); else process.exitCode = await run(options);})()
     .catch(error => {console.error('Iron Hands Forge: ' + error.message); process.exitCode = 1;});

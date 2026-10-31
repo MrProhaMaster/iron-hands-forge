@@ -10,7 +10,7 @@ import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 const require = createRequire(import.meta.url);
-const {parseOptions, resolvePaths, healthMatches, getHealth, acquireStartupLock} = require('../src/launcher/linux-launcher.cjs');
+const {parseOptions, resolvePaths, healthMatches, getHealth, waitForOwnedHealth, acquireStartupLock} = require('../src/launcher/linux-launcher.cjs');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LAUNCHER = path.join(ROOT, 'src/launcher/linux-launcher.cjs');
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
@@ -22,9 +22,9 @@ function cleanup(folder) {
 }
 const eventually = async predicate => {for (let i = 0; i < 100; i++) {if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 30));} assert.fail('Timed out waiting for launcher state');};
 async function freePort() {const server = net.createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening'); const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port;}
-function launch(args, folder, extraEnv = {}, observeInternalTemp = false) {
-  const observe = 'const {run,parseOptions}=require(' + JSON.stringify(LAUNCHER) + ');run(parseOptions(process.argv.slice(1)),{stdout:line=>{const ready=JSON.parse(line);ready.internalTemp={TEMP:process.env.TEMP,TMP:process.env.TMP,TMPDIR:process.env.TMPDIR};console.log(JSON.stringify(ready))}}).then(code=>process.exitCode=code).catch(error=>{console.error(error);process.exitCode=1});';
-  const command = observeInternalTemp ? ['-e', observe, '--', ...args] : [LAUNCHER, ...args];
+function launch(args, folder, extraEnv = {}, observeInternalTemp = false, appRoot = ROOT) {
+  const observe = 'const {run,parseOptions}=require(' + JSON.stringify(LAUNCHER) + ');run(parseOptions(process.argv.slice(1)),{appRoot:' + JSON.stringify(appRoot) + ',stdout:line=>{const ready=JSON.parse(line);ready.internalTemp={TEMP:process.env.TEMP,TMP:process.env.TMP,TMPDIR:process.env.TMPDIR};console.log(JSON.stringify(ready))}}).then(code=>process.exitCode=code).catch(error=>{console.error(error);process.exitCode=1});';
+  const command = observeInternalTemp || appRoot !== ROOT ? ['-e', observe, '--', ...args] : [LAUNCHER, ...args];
   const child = spawn(process.execPath, command, {cwd: os.tmpdir(), windowsHide: true,
     env: {...process.env, XDG_STATE_HOME: path.join(folder, 'xdg state'), XDG_CACHE_HOME: path.join(folder, 'xdg cache'), ...extraEnv}, stdio: ['ignore', 'pipe', 'pipe']});
   let output = '', errors = '';
@@ -85,6 +85,27 @@ test('health probe bounds response size and handles non-Forge and stalled servic
   } finally {server.closeAllConnections(); await new Promise(resolve => server.close(resolve));}
 });
 
+test('owned startup retries never accept another application root and stay bounded', async () => {
+  const expected={version:VERSION,appRoot:ROOT,dataRoot:path.join(ROOT,'data'),stateRoot:path.join(ROOT,'unused-test-state')};
+  let calls=0;
+  const server=http.createServer((req,res)=>{calls++;res.end(JSON.stringify({appId:'iron-hands-forge',ready:true,...expected,appRoot:path.join(ROOT,'different-app')}));});
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  try {
+    assert.equal(await waitForOwnedHealth(server.address().port,expected,{timeout:150}),null);
+    assert.ok(calls>=1);
+  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
+test('owned startup polling honours shutdown cancellation', async () => {
+  const expected={version:VERSION,appRoot:ROOT,dataRoot:path.join(ROOT,'data'),stateRoot:path.join(ROOT,'unused-test-state')};
+  const server=http.createServer((req,res)=>res.end(JSON.stringify({appId:'another-application'})));
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30);
+  try {
+    await assert.rejects(waitForOwnedHealth(server.address().port,expected,{signal:controller.signal,timeout:5000}),{name:'AbortError'});
+  } finally {clearTimeout(timer);server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
 test('startup lock is atomic and a released lock can be acquired immediately', async () => {
   const key = temporary(); let first, next;
   try {
@@ -128,6 +149,49 @@ test('launcher starts from another cwd, honours CLI paths, reuses only its insta
   } finally {
     for (const instance of [fallback, duplicate, primary]) if (instance) await stop(instance);
     await new Promise(resolve => foreign.close(resolve)); cleanup(folder);
+  }
+});
+
+test('cold synchronous resource inspection survives startup and concurrent launch reuses its warmed owner', async () => {
+  const folder = temporary(), fixture = path.join(folder, 'cold application'), port = await freePort();
+  let first, second;
+  try {
+    fs.mkdirSync(path.join(fixture, 'app'), {recursive: true});
+    fs.mkdirSync(path.join(fixture, 'shared'));
+    fs.writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({version: VERSION}));
+    fs.writeFileSync(path.join(fixture, 'shared/motion-bindings.json'), '{}');
+    fs.writeFileSync(path.join(fixture, 'shared/resource-library.cjs'),
+      "const path=require('node:path');exports.resolveDataRoot=({appRoot,dataRoot})=>path.resolve(appRoot,dataRoot??'data');\n");
+    fs.writeFileSync(path.join(fixture, 'app/server.cjs'), `
+      const http=require('node:http'),path=require('node:path');
+      const appRoot=path.resolve(__dirname,'..'),version=${JSON.stringify(VERSION)};
+      let checks=0;
+      exports.createForgeServer=({dataRoot,stateRoot})=>http.createServer((req,res)=>{
+        // The real first health request synchronously hashes the included models.
+        if(++checks===1)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1200);
+        res.end(JSON.stringify({appId:'iron-hands-forge',version,appRoot,dataRoot,stateRoot,
+          ready:true,resourcesReady:true,dataSource:'bundled',pid:process.pid,checks}));
+      });
+    `);
+    first = launch(['--no-browser', '--port', String(port)], folder, {}, false, fixture);
+    second = launch(['--no-browser', '--port', String(port)], folder, {}, false, fixture);
+    await eventually(() => first.ready() || first.child.exitCode !== null);
+    assert.ok(first.ready(), first.errors());
+    await eventually(() => second.ready() || second.child.exitCode !== null);
+    assert.ok(second.ready(), second.errors());
+    const a=first.ready(),b=second.ready();
+    assert.equal(a.url,b.url);assert.equal(a.port,port);
+    assert.equal([a.reused,b.reused].filter(Boolean).length,1);
+    const owner=a.reused?second:first,reuser=a.reused?first:second;
+    assert.equal((await reuser.exited).code,0,reuser.errors());
+    const health=await getHealth(port);
+    assert.equal(health.pid,owner.child.pid,'The reuser must leave the same warmed HTTP owner running');
+    assert.equal(health.appRoot,fs.realpathSync(fixture));
+    assert.equal(health.resourcesReady,true);
+    assert.ok(health.checks>=3,'Cold timeout must be followed by a successful startup retry and instance reuse');
+  } finally {
+    for(const instance of [second,first])if(instance)await stop(instance);
+    cleanup(folder);
   }
 });
 
