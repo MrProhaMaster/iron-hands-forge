@@ -1,6 +1,6 @@
 # Forge version policy
 
-The user explicitly authorised the final changes, Windows and Linux builds, and publication of **0.5.0** on 2026-10-30. `shared/release-policy.json` records that approval. The earlier local-only 0.4.x instruction remains the history of the builds below. Publication of a later version needs a new user instruction.
+The user explicitly authorised the final changes, Windows and Linux builds, and publication of **0.5.0** on 2026-10-30. `shared/release-policy.json` records that approval. The earlier local-only 0.4.x instruction remains the history of the builds below. Publication of a later version needs a new user instruction. The local Forge review was completed and publication explicitly reconfirmed on 2026-10-31; Windows and native Linux verification remain required before publishing.
 
 | Previous local name | Canonical local version |
 |---|---|

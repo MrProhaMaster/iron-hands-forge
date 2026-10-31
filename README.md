@@ -62,4 +62,4 @@ Selecting a Body Frame loads that class's complete starting outfit, including em
 
 ### Local iteration versions
 
-Current release candidate: **0.5.0**, awaiting the requested local demonstration before publication. Historical local builds retain their canonical versions 0.4.1-0.4.6; see [version policy](docs/version-policy.md). Names containing guardsman, astropath, comissar or commissar are excluded from the active parts catalogue.
+Current version: **0.5.0**. Historical local builds retain their canonical versions 0.4.1-0.4.6; see [version policy](docs/version-policy.md). Names containing guardsman, astropath, comissar or commissar are excluded from the active parts catalogue.

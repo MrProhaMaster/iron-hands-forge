@@ -14,5 +14,7 @@
   },
   "approvedStableVersion": "0.5.0",
   "approvedOn": "2026-10-30",
-  "approval": "Explicit user command to prepare Windows/Linux and publish0.5.0"
+  "approval": "Explicit user command to recheck Windows EXE and native Linux, then publish 0.5.0",
+  "localReviewCompletedOn": "2026-10-31",
+  "publicationReconfirmedOn": "2026-10-31"
 }
