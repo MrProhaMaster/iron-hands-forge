@@ -13,7 +13,7 @@ The launcher opens a local browser page. Keep its console running; closing it or
 - **One active marine.** The former five-character draft is migrated to one marine after an immutable backup is written. Existing IHF1 codes remain readable. Importing an old squad opens its first marine; the original code is unchanged.
 - **Body frame and armour are independent.** Choose Tactical, Assault, Vanguard, Bulwark, Heavy, Sniper or Techmarine as the target rig. Compatible, fully resolved parts from the other frames are listed in their ordinary armour sections, with their source class.
 - **Iron Hands parts appear in the normal lists.** Chapter armour, helmets, pauldrons, gauntlets, greaves, backpack, tabard and servo-arm are tagged and named. Use the Iron Hands filter to find them. There is no separate equip-set button.
-- **Game-style armour navigation.** Helm, Pauldrons, Breastplate, Wargear, Gauntlets and Greaves group the existing slot identities; Accessories keeps the additional mod slots available.
+- **Game-style armour navigation.** The Astartes menu order is Helm, Accessories, Pauldrons, Breastplate, Cloak, Wargear, Head, Gauntlets, Greaves and Tabard. Native and mod parts share their corresponding source sections. Backpack is beside Chest in Breastplate; the native Wargear subslots remain together.
 - **Fixed Chapter and Company heraldry.** Chapter applies to the left pauldron. Company applies to the right, with all ten native Iron Hands clan-company emblems. Each side keeps its own three-colour palette. Sculpted or source-forbidden shoulders show their compatibility reason.
 - **Full accessory catalogue.** Helmet ornaments, laurels, hoods, faceplates, capes, heads, tabards and class equipment remain independent. Imported source choices are retained for later manual curation; unavailable source references are explicitly disabled.
 - **Terminator, Chaplain and Apothecary templates.** Their real mod constructors, rig and source outfit presets initialise the new Body Frame choices. Individual parts remain editable afterwards.
@@ -42,7 +42,7 @@ Preparing new resources is a developer operation, separate from normal use. See 
 
 ## Validation
 
-The 0.5.0 source passed the full Node suite (200 passed; five environment-dependent skips), 35 Python tests, and offline browser checks of all ten body-frame templates. The browser checks render each of the ten companies, preserve the chapter on the opposite shoulder, save and round-trip IHF1, export actual embedded-texture GLB, and verify mobile/desktop layout. Native Linux packaging has a separate Ubuntu workflow gate. Common/Prestige static/walk servo exports were compared numerically with Blender; maximum bounds difference was below 0.000003 m. These are separate gates, not a claim that every possible armour combination has been visually reviewed.
+The 0.5.0 source passed the full Node suite (201 passed; five environment-dependent skips), 35 Python tests, and offline browser checks of all ten body-frame templates. The browser checks render each of the ten companies, preserve the chapter on the opposite shoulder, save and round-trip IHF1, export actual embedded-texture GLB, and verify mobile/desktop layout. Native Linux packaging has a separate Ubuntu workflow gate. Common/Prestige static/walk servo exports were compared numerically with Blender; maximum bounds difference was below 0.000003 m. These are separate gates, not a claim that every possible armour combination has been visually reviewed.
 
 Prepared models and resources remain outside Git. Do not force-add state, .build, data, runtime, dist, game archives or personal configurations. The project's own code is MIT; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -62,4 +62,4 @@ Selecting a Body Frame loads that class's complete starting outfit, including em
 
 ### Local iteration versions
 
-Current local iteration: **0.4.6**. All subsequent builds remain in **0.4.x** until the user explicitly declares readiness for **0.5.0**. Historical local builds were renumbered to 0.4.1–0.4.5; see [version policy](docs/version-policy.md). Names containing guardsman, astropath, comissar or commissar are excluded from the active parts catalogue.
+Current release candidate: **0.5.0**, awaiting the requested local demonstration before publication. Historical local builds retain their canonical versions 0.4.1-0.4.6; see [version policy](docs/version-policy.md). Names containing guardsman, astropath, comissar or commissar are excluded from the active parts catalogue.

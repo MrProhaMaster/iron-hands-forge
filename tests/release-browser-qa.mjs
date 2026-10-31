@@ -35,7 +35,7 @@ try{
  async function chooseEmblem(group,id){const waiting=page.waitForResponse(r=>r.url()===new URL('/api/preview',base).href&&r.request().method()==='POST');await page.selectOption('#'+group+'-choice',id);const response=await waiting;assert.equal(response.status(),200);const result=await response.json();await ready();const data=Buffer.from(await fetch(new URL(result.url,base)).then(r=>r.arrayBuffer()));assert.equal(data.readUInt32LE(0),0x46546c67);return JSON.parse(data.subarray(20,20+data.readUInt32LE(12)))}
  await page.goto(new URL('/?inspect=1',base).href,{waitUntil:'domcontentloaded'});await ready();assert.equal(await page.locator('#soldiers button').count(),1);
  assert.equal(await page.locator('#decal-slot').count(),0);assert.equal(await page.locator('#decal-choice').count(),0);
- const labels=await page.locator('#categories button').allTextContents();assert.deepEqual(labels,['Helm','Pauldrons','Breastplate','Wargear','Gauntlets','Greaves','Accessories']);report.groups=labels;
+ const labels=await page.locator('#categories button').allTextContents();assert.deepEqual(labels,['Helm','Accessories','Pauldrons','Breastplate','Cloak','Wargear','Head','Gauntlets','Greaves','Tabard']);report.groups=labels;
  const companyIds=await page.locator('#company-choice option').evaluateAll(xs=>xs.map(x=>x.value).filter(Boolean));assert.deepEqual(companyIds,IRON_HANDS_COMPANIES.map(c=>c.id));assert.equal(companyIds.length,10);
  const chapterIds=await page.locator('#chapter-choice option').evaluateAll(xs=>xs.map(x=>x.value).filter(Boolean));assert.equal(chapterIds.length,5);
  const order=await page.locator('.heraldry .field>select').evaluateAll(xs=>xs.map(x=>x.id));assert.deepEqual(order,['chapter-choice','company-choice']);

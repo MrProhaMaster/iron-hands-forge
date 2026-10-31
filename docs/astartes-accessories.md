@@ -4,7 +4,9 @@ The optional prepared library at assets/customization/astartes-v1 adds the Astar
 
 ## In the studio
 
-Accessories is an independent section for helmet ornaments, laurels, hoods and faceplates. Capes, Heads, Tabards & cloth and Class equipment are separate choices. The Astartes filter identifies imported parts; the normal lists retain native and Iron Hands parts.
+The armour menu follows the Astartes Full 15.2 UI itself, rather than pooling mod choices into an extra section. Reading its two header rows left to right gives **Helm, Accessories, Pauldrons, Breastplate, Cloak; Wargear, Head, Gauntlets, Greaves, Tabard**. Native, Iron Hands and Astartes choices stay in their corresponding lists; the Astartes filter remains available.
+
+`ssl/ui/assets/armor_customization/prefabs/ui_armor_slots.sso` supplies both the header grid coordinates and its `bodySections` mapping. `MODDED_SLOT_1` is Accessories (helmet ornaments, laurels, hoods and faceplates); `_2` is Cloak, `_3` is Head, `_4` is Tabard. Chest and Backpack are under Breastplate. The Wargear paginator contains `VANITY`, `VANITY_2`, `VANITY_3`, `CLOTH`, `COAT`, `HALO` and `ANTENNA`; the independently editable Forge Class equipment choice is alongside them. No recipe identity or equip mechanism changes when these navigation groups change.
 
 Chaplain and Apothecary appear in Body Frame. Selecting either template applies its source starting outfit. Loading a saved recipe preserves the saved customisation instead. The templates use the actual modded soldier constructor and its skeleton, rather than renaming a native Tactical frame. Their preview palettes are authored defaults: the source outfit presets do not specify paint colours.
 
