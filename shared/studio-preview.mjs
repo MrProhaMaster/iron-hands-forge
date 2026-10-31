@@ -32,7 +32,7 @@ export function createStudioPreview({getCatalog,getDataRoot,stateRoot}){
    recipe.soldiers[0]={...recipe.soldiers[0]};delete recipe.soldiers[0].motion;
   }
   const onlySlots=partOnly?[data.slotId]:undefined;
-  const fingerprint='forge-studio-0.5.0-heraldry-r1|'+String(catalog.registryFingerprint||'')+'|'+String(catalog.cosmeticsRevision||'')+'|'+JSON.stringify((catalog.manifest?.assets||[]).map(a=>[a.asset,a.assetRevision]));
+  const fingerprint='forge-studio-0.5.0-heraldry-native-wrap-r2|'+String(catalog.registryFingerprint||'')+'|'+String(catalog.cosmeticsRevision||'')+'|'+JSON.stringify((catalog.manifest?.assets||[]).map(a=>[a.asset,a.assetRevision]));
   const key=crypto.createHash('sha256').update(JSON.stringify({recipe,onlySlots,dataRoot,fingerprint})).digest('hex').slice(0,32);
   const out=path.join(cacheRoot,key),manifest=path.join(out,'build-manifest.json');
   function result(){

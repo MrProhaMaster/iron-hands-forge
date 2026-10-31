@@ -1,10 +1,14 @@
 /** User-curated part names. Source files remain intact; excluded choices are not selectable. */
 import {optionLabel} from './ui-labels.mjs';
 const EXCLUDED_NAME=/guardsman|astropath|com+issar/iu;
+// The source labels this hidden-rarity item without a trailing "hidden" word.
+const EXCLUDED_EXACT_NAMES=new Set(['chest custom carcharodons','chest custom carcharodons hidden','chest custom charcaradons hidden']);
 export function partNameExclusion(option){
  const name=optionLabel(option).normalize('NFKC');
  const match=EXCLUDED_NAME.exec(name);
- return match?{name,matchedText:match[0].toLowerCase()}:null;
+ if(match)return{name,matchedText:match[0].toLowerCase()};
+ const normalized=name.trim().replace(/\s+/gu,' ').toLowerCase();
+ return EXCLUDED_EXACT_NAMES.has(normalized)?{name,matchedText:normalized}:null;
 }
 
 /** Applied after all native, mod and cross-class choices have been assembled. */

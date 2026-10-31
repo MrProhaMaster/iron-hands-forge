@@ -30,7 +30,7 @@ def glb(p):
 class Model:
  def __init__(self,name,file,metadata,retail=False):
   self.name=name;self.id=('retail_'if retail else'astartes_')+name;self.file=Path(file);self.meta=read(metadata);self.retail=retail
-  self.records=self.meta['meshes'];self.objects={o['id']:o for o in self.meta['objectMetadata']};self.index=collections.defaultdict(set);self.names=set();self.pending=set();self.aliases={};self.normalized=collections.defaultdict(list)
+  self.records=self.meta['meshes'];self.objects={o['id']:o for o in self.meta['objectMetadata']};self.index=collections.defaultdict(set);self.names=set();self.pending=set();self.aliases={};self.normalized=collections.defaultdict(list);self.exact_selector_inventory=set()
   for o in self.objects.values():
    for key in ['name','readName','readOnlyName','fullPath']:
     value=o.get(key)
@@ -59,6 +59,8 @@ class Model:
  def resolve(self,name):
   key=name.lower()
   if key in self.index:return set(self.index[key])
+  # A source-exact donor mesh takes precedence over a guessed group spelling.
+  if key in self.exact_selector_inventory:return set()
   normalized=self.normalize(key)
   if normalized=='mark8_knee_scul':normalized='mark8_knee_scull'
   names=self.normalized.get(normalized,[])
@@ -69,6 +71,11 @@ class Model:
   return set()
  def exists(self,name):return name.lower()in self.names or bool(self.resolve(name))
  def descriptor(self):return{'id':self.id,'sourceTemplate':self.name,'sourceClassId':BASE[self.name],'sourceClassPolicy':'Forge donor rig family; exact source template and source actor binding remain authoritative','glb':DIRECTORY+'/models/'+self.id+'.glb','metadata':DIRECTORY+'/models/'+self.id+'.json','validation':{'transform':'passed','restSkin':'passed','weightPacking':'passed','skinProfileWeld':'passed'}}
+def prefer_exact_source_selectors(models):
+ """Keep explicit primary groups; never let suffix guessing pre-empt an exact donor."""
+ inventory=set().union(*(set(model.index)for model in models))
+ for model in models:model.exact_selector_inventory=inventory
+ return inventory
 def compact(model,target,selected):
  """Copy every selected accessor bit-for-bit; preserve palettes, nodes and rest matrices."""
  source=model.file;doc,base,_=glb(source);blob=np.memmap(source,dtype='u1',mode='r')
@@ -126,14 +133,14 @@ def compact(model,target,selected):
  metadata=portable(copy.deepcopy(model.meta));metadata['meshes']=[metadata['meshes'][i]for i in ids];metadata.update({'meshCount':len(ids),'vertices':sum(m['vertices']for m in metadata['meshes']),'faces':sum(m['faces']for m in metadata['meshes']),'subsetValidation':'source-exact accessor and palette copy','sourceSelectedMeshIndices':ids,'file':model.descriptor()['glb'],'raw':model.descriptor()['glb'],'publishedSha256':digest(target)})
  write(target.with_suffix('.json'),metadata)
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,required=True);p.add_argument('--data-root',type=Path,required=True);p.add_argument('--native-data-root',type=Path);args=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,required=True);p.add_argument('--data-root',type=Path,required=True);p.add_argument('--native-data-root',type=Path);p.add_argument('--previous-catalog',type=Path);p.add_argument('--coverage-report',type=Path);args=p.parse_args()
  src=args.source_root;root=args.data_root;out=root/DIRECTORY
  options=read(src/'options-map.json')['options'];profiles=read(src/'body-frame-profiles.json')['profiles']
  policy_file=src/'source-resolution-policy.json'
  policy=read(policy_file)if policy_file.exists()else{'bindings':[]}
  bindings={r['sourcePath']:r for r in policy.get('bindings',[])}
  if len(bindings)!=len(policy.get('bindings',[])):raise ValueError('Duplicate source binding policy path')
- previous_file=src/'previous-catalog.json';previous=read(previous_file)if previous_file.exists()else{}
+ previous_file=args.previous_catalog or src/'previous-catalog.json';previous=read(previous_file)if previous_file.exists()else{}
  previous_options=[*previous.get('options',[]),*previous.get('unavailableOptions',[])];claimed_ids=set();previous_by_definition=collections.defaultdict(list)
  for record in previous_options:previous_by_definition[canonical(record.get('sourceDefinition'))].append(record)
  def stable_id(proposed,definition,rows,primary):
@@ -158,6 +165,7 @@ def main():
   if bindings_file.exists():
    names={m['name'].lower()for m in model.records}
    model.meta['sourceGeometryBindings']=[r for r in read(bindings_file)if r['simMeshName'].lower()in names]
+ prefer_exact_source_selectors(models)
  mod={m.name:m for m in models if not m.retail};byid={m.id:m for m in models}
  groups=collections.defaultdict(list)
  for option in options:
@@ -245,7 +253,7 @@ def main():
    new[slot]=chosen['id']
   if profile['id']=='PVE_PVP_CHARACTER_MOD_3':new['ASTARTES_EQUIPMENT']='astartes:apothecary_arms'
   profile['initialSelection']=new
- catalog={'schema':'iron-hands-forge-astartes-catalog-v1','version':1,'sourceMod':{'name':'Astartes Overhaul','version':'15.2','archive':'wa_astartes_15_2.pak'},'sourceAudit':[{'file':name,'sha256':digest(src/name)}for name in ['source-resolution-policy.json','native-source-geometry-bindings.json','mod-source-geometry-bindings.json','remaining-selector-metadata-audit.json','native-all-character-missing-selector-hits.json','native-name-resolution-source-audit.json','champion-dummy-direct-binding-audit.json','all-native-missing-selector-hits.json','unavailable-selector-reasons.json','champion-gauntlet-source-bindings.json']if(src/name).exists()],'models':[],'options':result,'unavailableOptions':unavailable,'profiles':profiles}
+ catalog={'schema':'iron-hands-forge-astartes-catalog-v1','version':1,'selectorResolutionPolicy':{'version':2,'precedence':'exact primary, exact donor, source-spelling fallback','sourceSHA256':digest(Path(__file__))},'sourceMod':{'name':'Astartes Overhaul','version':'15.2','archive':'wa_astartes_15_2.pak'},'sourceAudit':[{'file':name,'sha256':digest(src/name)}for name in ['source-resolution-policy.json','native-source-geometry-bindings.json','mod-source-geometry-bindings.json','remaining-selector-metadata-audit.json','native-all-character-missing-selector-hits.json','native-name-resolution-source-audit.json','champion-dummy-direct-binding-audit.json','all-native-missing-selector-hits.json','unavailable-selector-reasons.json','champion-gauntlet-source-bindings.json']if(src/name).exists()],'models':[],'options':result,'unavailableOptions':unavailable,'profiles':profiles}
  files=[]
  for mid in sorted(used_models):
   model=byid[mid];descriptor=model.descriptor();target=root/descriptor['glb']
@@ -263,7 +271,7 @@ def main():
  manifest={'schema':'iron-hands-forge-astartes-library-v1','version':1,'catalog':catalog_path,'files':files}
  write(out/'manifest.json',manifest)
  report={'schema':'iron-hands-forge-astartes-coverage-v1','complete':True,'geometryComplete':not pending,'definitions':len(options),'uniqueDefinitionGroups':len(groups),'importedOptions':len(result),'profiles':len(profiles),'models':len(catalog['models']),'resolvedDefinitions':len(definition_ids),'unavailableOptions':len(unavailable),'unresolvedVariants':len(pending),'sourceDefinitionsCovered':len(set(definition_ids)|{p for row in pending for p in row['sourceDefinitions']}),'aliasResolutions':{m.id:m.aliases for m in models if m.aliases},'slotCounts':dict(collections.Counter(o['slotId']for o in result)),'pending':pending,'rows':coverage}
- write(src/'import-coverage.json',report)
+ write(args.coverage_report or src/'import-coverage.json',report)
  print(json.dumps({k:v for k,v in report.items()if k not in['pending','rows','aliasResolutions']}))
  return 0
 if __name__=='__main__':raise SystemExit(main())

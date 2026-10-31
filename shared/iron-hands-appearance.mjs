@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import {inflateSync,deflateSync} from 'node:zlib';
 import {createRequire} from 'node:module';
 const {resourcePath,resolveIronHandsDecal}=createRequire(import.meta.url)('./iron-hands-library.cjs');
+// Native UV0 uses adjacent integer tiles, including negative V on right pauldrons.
+// Repeat the native decal image while preserving every source UV coordinate.
+export const NATIVE_DECAL_SAMPLER=Object.freeze({magFilter:9729,minFilter:9987,wrapS:10497,wrapT:10497});
 const SIGNATURE=Buffer.from([137,80,78,71,13,10,26,10]);
 const TABLE=new Uint32Array(256);
 for(let n=0;n<256;n++){let c=n;for(let j=0;j<8;j++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;TABLE[n]=c>>>0}

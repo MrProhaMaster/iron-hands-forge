@@ -73,10 +73,31 @@ function loadAstartesLibrary(root){
  const result={...value,unavailableOptions:unavailable,ready:true,revision,files:manifest.files,catalogPath:manifest.catalog,manifestPath:MANIFEST};
  cache.set(manifestPath,result);if(cache.size>16)cache.clear();if(verified.size>4096)verified.clear();return result;
 }
+const TERMINATOR_FRAME_ID='PVE_PVP_CHARACTER_MOD_1';
+/** Source ownership identifies authored Terminator parts, including differently named variants.
+ * A shared Loyalist definition takes precedence over a local owner. Constructor names
+ * are insufficient: the same Tank source also contains ordinary Bulwark equipment.
+ */
+function isTerminatorOnlyOption(option){
+ const definitions=option?.sourceDefinitions||[];
+ if(definitions.some(d=>d.team==='LOYALIST'&&d.scope==='shared'))return false;
+ const owners=new Set(definitions.filter(d=>d.team==='LOYALIST'&&d.scope==='local'&&d.appearanceUid).map(d=>d.appearanceUid));
+ return owners.size===1&&owners.has(TERMINATOR_FRAME_ID);
+}
+/** Resolve archived exact IDs (including old cross-class aliases) before registry filtering.
+ * Return a diagnostic without changing the recipe, source library or saved selection.
+ */
+function restrictedPartSelection(library,classId,slotId,optionId){
+ if(!library?.ready||classId===TERMINATOR_FRAME_ID||typeof optionId!=='string')return null;
+ const exactId=optionId.replace(/^forge:[^:]+:/,'');
+ const option=[...library.options,...(library.unavailableOptions||[])].find(o=>o.slotId===slotId&&o.id===exactId);
+ if(!option||!isTerminatorOnlyOption(option))return null;
+ return{id:option.id,name:option.label||option.sourceOptionId||option.id,allowedClassIds:[TERMINATOR_FRAME_ID]};
+}
 function optionForRegistry(o,library){
  const model=library.models.find(m=>m.id===o.sourceAsset);
  const {sourceDefinition,sourceDefinitions,sourceResolution,...runtime}=o;
- return{...structuredClone(runtime),isInitial:false,isDefault:false,shared:true,sourceLabel:o.sourceLabel||'Astartes',sourceClassId:model?.sourceClassId,sourceOptionId:o.sourceOptionId,chapter:o.chapter,
+ return{...structuredClone(runtime),...(isTerminatorOnlyOption(o)?{targetClassIds:[TERMINATOR_FRAME_ID]}:{}),isInitial:false,isDefault:false,shared:true,sourceLabel:o.sourceLabel||'Astartes',sourceClassId:model?.sourceClassId,sourceOptionId:o.sourceOptionId,chapter:o.chapter,
   tags:[...new Set([...(o.tags||[]),'astartes'])],...(!o.meshes.length?{forgeEmpty:true}:{}),
   forgeAstartes:{modelId:o.sourceAsset,slotId:o.slotId,optionId:o.id}};
 }
@@ -95,7 +116,7 @@ function augmentAstartesRegistry(registry,library){
  }
  for(const c of result.classes.filter(c=>c.available)){
   for(const o of [...library.options,...(library.unavailableOptions||[])]){
-   if(o.targetClassIds&&!o.targetClassIds.includes(c.id))continue;
+   if(o.targetClassIds&&!o.targetClassIds.includes(c.id)||isTerminatorOnlyOption(o)&&c.id!==TERMINATOR_FRAME_ID)continue;
    let slot=c.slots.find(s=>s.id===o.slotId);
    if(!slot){
     const id='forge:none:'+o.slotId,empty={id,label:'Нет',meshes:[],resolvedMeshes:[],resolvedObjectIds:[],geometryAvailable:true,geometryComplete:true,resolutionStatus:'empty',forgeEmpty:true};
@@ -104,7 +125,7 @@ function augmentAstartesRegistry(registry,library){
    if(slot.options.some(x=>x.id===o.id))throw Error('Astartes option collides with a native ID');
    if(o.geometryAvailable===false){
     const {sourceDefinition,sourceDefinitions,sourceResolution,...runtime}=o;
-    slot.options.push({...structuredClone(runtime),meshes:[],resolvedMeshes:[],resolvedObjectIds:[],isInitial:false,isDefault:false,shared:true,sourceLabel:'Astartes',tags:[...new Set([...(o.tags||[]),'astartes'])],forgeUnavailable:true,forgeAstartes:{unavailable:true,slotId:o.slotId,optionId:o.id}});
+    slot.options.push({...structuredClone(runtime),...(isTerminatorOnlyOption(o)?{targetClassIds:[TERMINATOR_FRAME_ID]}:{}),meshes:[],resolvedMeshes:[],resolvedObjectIds:[],isInitial:false,isDefault:false,shared:true,sourceLabel:'Astartes',tags:[...new Set([...(o.tags||[]),'astartes'])],forgeUnavailable:true,forgeAstartes:{unavailable:true,slotId:o.slotId,optionId:o.id}});
    }else slot.options.push(optionForRegistry(o,library));
   }
  }
@@ -128,4 +149,4 @@ function resolveAstartesModel(library,modelId){
  const id=typeof modelId==='object'?modelId.forgeAstartes?.modelId||modelId.forgeBodyFrame?.sourceModel:modelId;
  const model=library.models.find(x=>x.id===id);if(!model)throw Error('Unknown Astartes source model: '+id);return model;
 }
-module.exports={DIRECTORY,MANIFEST,resourcePath,loadAstartesLibrary,augmentAstartesRegistry,resolveAstartesModel};
+module.exports={DIRECTORY,MANIFEST,resourcePath,loadAstartesLibrary,augmentAstartesRegistry,resolveAstartesModel,isTerminatorOnlyOption,restrictedPartSelection};

@@ -41,3 +41,10 @@ test('old native, Astartes and cross-class removed selections retain an explicit
  assert.equal(excludedPartSelection(source,'A','HELMET','astartes:old:abcd1234').name,'Helmet commissar');
  for(const [id,slot]of [['safe','HELMET'],['unknown_guardsman','HELMET'],['forge:missing:old','HELMET'],['old','CHEST']])assert.equal(excludedPartSelection(source,'A',slot,id),null);
 });
+test('the user-curated hidden Carcharodons chest is removed by its exact visible name',()=>{
+ for(const label of ['Chest custom carcharodons','Chest custom carcharodons hidden','Chest custom charcaradons hidden',' CHEST  custom  Carcharodons '])assert.ok(partNameExclusion({label}),label);
+ for(const label of ['Chest custom carcharodons relic','Left pauldron custom carcharodons','Helmet custom carcharodons'])assert.equal(partNameExclusion({label}),null,label);
+ const source={classes:[frame('A',[{id:'CHEST',options:[part('astartes:chest_custom_carcharodons:2f3e8b2e','Chest custom carcharodons'),part('chest-standard','Chest common')]}],{CHEST:'chest-standard'})]};
+ const result=augmentCustomizationRegistry(source);assert.deepEqual(result.classes[0].slots[0].options.map(o=>o.id),['chest-standard']);
+ assert.equal(excludedPartSelection(source,'A','CHEST','astartes:chest_custom_carcharodons:2f3e8b2e').name,'Chest custom carcharodons');
+});
